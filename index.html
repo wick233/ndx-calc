@@ -1,0 +1,1320 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>纳指定投收益计算器</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Instrument+Sans:wght@400;500;600&family=JetBrains+Mono:wght@400;500&display=swap">
+<style>
+  :root {
+    color-scheme: light;
+    /* 拉丁字形走 Instrument Sans，中文自动落到系统黑体——
+       计算器里真正需要个性的是数字，中文正文保持系统字重最稳 */
+    --font-ui:   "Instrument Sans", system-ui, -apple-system, "PingFang SC", "Microsoft YaHei", sans-serif;
+    --font-mono: "JetBrains Mono", ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+    --page:           #f9f9f7;
+    --surface-1:      #fcfcfb;
+    --text-primary:   #0b0b0b;
+    --text-secondary: #52514e;
+    --text-muted:     #898781;
+    --gridline:       #e1e0d9;
+    --baseline:       #c3c2b7;
+    --border:         rgba(11,11,11,0.10);
+    --series-1:       #2a78d6;  /* 累计本金 */
+    --series-2:       #eb6834;  /* 投资收益 */
+    --good:           #006300;
+    --critical:       #d03b3b;
+    --field:          #ffffff;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root:where(:not([data-theme="light"])) {
+      color-scheme: dark;
+      --page:           #0d0d0d;
+      --surface-1:      #1a1a19;
+      --text-primary:   #ffffff;
+      --text-secondary: #c3c2b7;
+      --text-muted:     #898781;
+      --gridline:       #2c2c2a;
+      --baseline:       #383835;
+      --border:         rgba(255,255,255,0.10);
+      --series-1:       #3987e5;
+      --series-2:       #d95926;
+      --good:           #0ca30c;
+      --critical:       #d03b3b;
+      --field:          #232322;
+    }
+  }
+  :root[data-theme="dark"] {
+    color-scheme: dark;
+    --page:           #0d0d0d;
+    --surface-1:      #1a1a19;
+    --text-primary:   #ffffff;
+    --text-secondary: #c3c2b7;
+    --text-muted:     #898781;
+    --gridline:       #2c2c2a;
+    --baseline:       #383835;
+    --border:         rgba(255,255,255,0.10);
+    --series-1:       #3987e5;
+    --series-2:       #d95926;
+    --good:           #0ca30c;
+    --critical:       #d03b3b;
+    --field:          #232322;
+  }
+
+  * { box-sizing: border-box; }
+  body {
+    margin: 0;
+    background: var(--page);
+    color: var(--text-primary);
+    font-family: var(--font-ui);
+    line-height: 1.5;
+    -webkit-font-smoothing: antialiased;
+  }
+  :focus-visible { outline: 2px solid var(--series-1); outline-offset: 2px; border-radius: 4px; }
+  @media (prefers-reduced-motion: reduce) { * { transition: none !important; animation: none !important; } }
+  .wrap { max-width: 1020px; margin: 0 auto; padding: 32px 20px 64px; }
+
+  header { display: flex; align-items: baseline; justify-content: space-between; gap: 16px; flex-wrap: wrap; margin-bottom: 6px; }
+  h1 { font-size: 22px; font-weight: 600; margin: 0; letter-spacing: -0.01em; }
+  .sub { color: var(--text-secondary); font-size: 13px; margin: 0 0 24px; }
+
+  .btn {
+    font: inherit; font-size: 13px; color: var(--text-secondary);
+    background: var(--surface-1); border: 1px solid var(--border);
+    border-radius: 8px; padding: 6px 12px; cursor: pointer;
+  }
+  .btn:hover { color: var(--text-primary); }
+  .btn[aria-pressed="true"] { color: var(--text-primary); font-weight: 600; }
+
+  .card {
+    background: var(--surface-1); border: 1px solid var(--border);
+    border-radius: 12px; padding: 20px; margin-bottom: 16px;
+  }
+  .card-head { display: flex; align-items: center; justify-content: space-between; gap: 12px; margin-bottom: 4px; flex-wrap: wrap; }
+  h2 { font-size: 14px; font-weight: 600; margin: 0; }
+  .note { font-size: 12px; color: var(--text-muted); margin: 4px 0 0; }
+
+  /* ---- controls ---- */
+  .controls { display: grid; grid-template-columns: repeat(auto-fit, minmax(178px, 1fr)); gap: 18px 20px; }
+  .ctrl label { display: block; font-size: 12px; color: var(--text-secondary); margin-bottom: 6px; }
+  .ctrl .row { display: flex; align-items: center; gap: 8px; }
+  .ctrl input[type=number] {
+    font-family: var(--font-mono); font-size: 14px; font-variant-numeric: tabular-nums;
+    width: 100%; padding: 7px 9px; color: var(--text-primary);
+    background: var(--field); border: 1px solid var(--border); border-radius: 8px;
+  }
+  .ctrl .unit { font-size: 12px; color: var(--text-muted); white-space: nowrap; }
+  .ctrl input[type=range] { width: 100%; margin: 9px 0 0; accent-color: var(--series-1); }
+  .ctrl input[type=month] {
+    font-family: var(--font-mono); font-size: 14px; width: 100%; padding: 7px 9px;
+    color: var(--text-primary); background: var(--field);
+    border: 1px solid var(--border); border-radius: 8px;
+  }
+
+  /* ---- hero + tiles ---- */
+  .hero-val { font-size: 46px; font-weight: 600; letter-spacing: -0.02em; line-height: 1.1; margin: 2px 0 0; }
+  .hero-sub { font-size: 13px; color: var(--text-secondary); margin: 6px 0 0; }
+  .tiles { display: grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); gap: 16px; margin-bottom: 16px; }
+  .tile { background: var(--surface-1); border: 1px solid var(--border); border-radius: 12px; padding: 16px 18px; }
+  .tile .k { font-size: 12px; color: var(--text-secondary); display: flex; align-items: center; gap: 6px; }
+  .tile .v { font-size: 24px; font-weight: 600; letter-spacing: -0.01em; margin-top: 4px; }
+  .tile .m { font-size: 12px; color: var(--text-muted); margin-top: 2px; }
+  .swatch { width: 9px; height: 9px; border-radius: 2px; flex: none; }
+
+  /* ---- chart ---- */
+  /* 浮层的定位容器，不能是滚动容器：overflow-x:auto 会把 overflow-y 一并算成 auto，
+     而绝对定位的浮层会计入滚动区域，一悬浮右边就冒出纵向滚动条 */
+  .chart-box { position: relative; margin-top: 14px; }
+  /* 横向兜底单独放一层，里面只有 svg，不含浮层 */
+  .chart-scroll { overflow-x: auto; }
+  /* 按真实像素渲染，不用 viewBox 等比缩放——否则窗口变窄时高度会跟着被压扁 */
+  svg { display: block; overflow: hidden; }
+
+  /* 分段控件：贴在标题行右侧，不额外占一行高度 */
+  .seg { display: inline-flex; gap: 2px; padding: 2px; flex: none;
+         background: var(--page); border: 1px solid var(--border); border-radius: 9px; }
+  .seg .btn { border: none; background: transparent; padding: 5px 13px; border-radius: 7px; }
+  .seg .btn[aria-pressed="true"] { background: var(--surface-1); color: var(--text-primary);
+         font-weight: 600; box-shadow: 0 1px 2px rgba(0,0,0,.07); }
+  .legend { display: flex; gap: 18px; flex-wrap: wrap; font-size: 12px; color: var(--text-secondary); margin-top: 12px; }
+  .legend span { display: inline-flex; align-items: center; gap: 7px; }
+
+  .tip {
+    position: absolute; pointer-events: none;
+    opacity: 0; visibility: hidden; transition: opacity .1s, visibility .1s;
+    background: var(--surface-1); border: 1px solid var(--border); border-radius: 9px;
+    padding: 9px 11px; font-size: 12px; min-width: 196px;
+    box-shadow: 0 4px 16px rgba(0,0,0,.14); z-index: 5;
+  }
+  .tip.on { opacity: 1; visibility: visible; }
+  .tip .t { font-weight: 600; margin-bottom: 5px; font-size: 12px; }
+  .tip .r { display: flex; align-items: center; justify-content: space-between; gap: 14px; color: var(--text-secondary); }
+  .tip .r b { color: var(--text-primary); font-weight: 500; font-family: var(--font-mono); font-variant-numeric: tabular-nums; }
+  .tip .r .lb { display: inline-flex; align-items: center; gap: 6px; }
+  .tip .hr { border-top: 1px solid var(--gridline); margin: 7px 0 6px; }
+  .tip .cap { font-size: 11px; color: var(--text-muted); margin-bottom: 4px; }
+  .tip .flag { font-size: 11px; color: var(--good); margin-top: 5px; line-height: 1.35; }
+  .tip .flag.down { color: var(--critical); }
+
+  /* ---- table ---- */
+  table { width: 100%; border-collapse: collapse; font-size: 13px; margin-top: 14px; }
+  th, td { text-align: right; padding: 7px 8px; border-bottom: 1px solid var(--gridline); }
+  td { font-family: var(--font-mono); font-variant-numeric: tabular-nums; }
+  th:first-child, td:first-child { text-align: left; font-family: var(--font-ui); }
+  th { color: var(--text-secondary); font-weight: 500; font-size: 12px; }
+  .hidden { display: none; }
+
+  /* ---- drawdown ---- */
+  .dd { display: grid; grid-template-columns: repeat(auto-fit, minmax(130px, 1fr)); gap: 14px; margin-top: 14px; }
+  .dd-item { border: 1px solid var(--border); border-radius: 10px; padding: 13px 14px; }
+  .dd-item .k { font-size: 12px; color: var(--text-secondary); }
+  .dd-item .v { font-size: 20px; font-weight: 600; margin-top: 3px; }
+  .dd-item .m { font-size: 11px; margin-top: 3px; }
+  .up { color: var(--good); } .down { color: var(--critical); }
+
+  /* ---- 分段定投 ---- */
+  .stages { margin-top: 20px; padding-top: 18px; border-top: 1px solid var(--gridline); }
+  .stage-head { display: flex; align-items: center; justify-content: space-between; gap: 12px; margin-bottom: 12px; }
+  .stage-head h3 { font-size: 14px; font-weight: 600; margin: 0; }
+  .stage-head .btn { font-size: 12px; padding: 5px 10px; }
+  .stage-row { display: grid; grid-template-columns: 34px 64px auto 92px 26px 28px; gap: 8px;
+               align-items: center; margin-bottom: 8px; font-size: 12px; color: var(--text-secondary); }
+  .stage-row .u { font-size: 12px; color: var(--text-muted); }
+  .stage-row input { font-family: var(--font-mono); font-size: 14px; font-variant-numeric: tabular-nums;
+               width: 100%; padding: 7px 9px; color: var(--text-primary);
+               background: var(--field); border: 1px solid var(--border); border-radius: 8px; }
+  .stage-row input:focus-visible { outline: 2px solid var(--series-1); }
+  .stage-row .x { background: transparent; border: none; color: var(--text-muted); cursor: pointer;
+               font-size: 15px; padding: 4px; border-radius: 6px; }
+  .stage-row .x:hover { color: var(--critical); }
+  .stage-empty { font-size: 12px; color: var(--text-muted); margin: 0 0 8px; }
+  .stage-chain { font-family: var(--font-mono); font-size: 12px; color: var(--text-secondary);
+               margin: 10px 0 0; font-variant-numeric: tabular-nums; }
+
+  /* ---- 可选项行 / 历史回测 ---- */
+  .optrow { display: flex; align-items: center; gap: 8px; margin-top: 14px; font-size: 12px; color: var(--text-secondary); flex-wrap: wrap; }
+  .optrow input[type=checkbox] { accent-color: var(--series-1); }
+  .optrow input[type=number] {
+    font-family: var(--font-mono); font-size: 14px; width: 74px; padding: 6px 8px;
+    color: var(--text-primary); background: var(--field);
+    border: 1px solid var(--border); border-radius: 8px;
+  }
+  .bt-opt { display: grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); gap: 14px; margin: 12px 0 2px; }
+  .bt-note { font-size: 12px; color: var(--text-muted); margin: 12px 0 0; }
+
+  footer { font-size: 12px; color: var(--text-muted); margin-top: 24px; }
+</style>
+</head>
+<body>
+<div class="wrap">
+
+  <header>
+    <h1>纳指定投收益计算器</h1>
+    <button class="btn" id="theme" type="button">切换深色</button>
+  </header>
+  <p class="sub">按月复利计算。设定本金、每月定投、预期年化与费率，看十年后的构成。</p>
+
+  <!-- 参数：一行控件，作用于下面所有内容 -->
+  <div class="card">
+    <h2>参数设定</h2>
+    <div class="controls" style="margin-top:14px">
+      <div class="ctrl">
+        <label for="n_lump">初始本金</label>
+        <div class="row"><input type="number" id="n_lump" min="0" max="2000000" step="1000" value="100000"><span class="unit">元</span></div>
+        <input type="range" id="r_lump" min="0" max="1000000" step="5000" value="100000">
+      </div>
+      <div class="ctrl">
+        <label for="n_mon">每月定投</label>
+        <div class="row"><input type="number" id="n_mon" min="0" max="100000" step="100" value="4167"><span class="unit">元/月</span></div>
+        <input type="range" id="r_mon" min="0" max="30000" step="100" value="4167">
+      </div>
+      <div class="ctrl">
+        <label for="n_rate">预期年化收益率</label>
+        <div class="row"><input type="number" id="n_rate" min="-10" max="30" step="0.5" value="12"><span class="unit">%</span></div>
+        <input type="range" id="r_rate" min="-10" max="30" step="0.5" value="12">
+      </div>
+      <div class="ctrl">
+        <label for="n_fee">基金年费率</label>
+        <div class="row"><input type="number" id="n_fee" min="0" max="3" step="0.1" value="1"><span class="unit">%/年</span></div>
+        <input type="range" id="r_fee" min="0" max="3" step="0.1" value="1">
+      </div>
+      <div class="ctrl">
+        <label for="n_yrs">投资年限</label>
+        <div class="row"><input type="number" id="n_yrs" min="1" max="40" step="1" value="10"><span class="unit">年</span></div>
+        <input type="range" id="r_yrs" min="1" max="40" step="1" value="10">
+      </div>
+      <div class="ctrl">
+        <label for="n_stop">第几年停止定投</label>
+        <div class="row"><input type="number" id="n_stop" min="0" max="40" step="1" value="0"><span class="unit">年 · 0=不停</span></div>
+        <input type="range" id="r_stop" min="0" max="40" step="1" value="0">
+      </div>
+      <div class="ctrl">
+        <label for="n_spend">停投后每月支出</label>
+        <div class="row"><input type="number" id="n_spend" min="0" max="200000" step="500" value="0"><span class="unit">元/月</span></div>
+        <input type="range" id="r_spend" min="0" max="50000" step="500" value="0">
+      </div>
+      <div class="ctrl">
+        <label for="d_start">起始年月</label>
+        <div class="row"><input type="month" id="d_start"></div>
+      </div>
+      <div class="ctrl">
+        <label for="n_infl">通胀率（购买力换算）</label>
+        <div class="row"><input type="number" id="n_infl" min="0" max="10" step="0.5" value="3"><span class="unit">%/年</span></div>
+      </div>
+    </div>
+
+    <div class="optrow">
+      <input type="checkbox" id="k_growth">
+      <label for="k_growth">定投额逐年递增</label>
+      <input type="number" id="n_growth" min="0" max="30" step="0.5" value="5">
+      <span class="unit">%/年 —— 每年投 上年 ×（1＋增幅），分段调额那年重新起算</span>
+    </div>
+    <p class="note" id="netnote"></p>
+
+    <!-- 分段定投：某年起改每月投入额（金额填 0 = 该年起停投） -->
+    <div class="stages">
+      <div class="stage-head">
+        <h3>分段定投（可选）</h3>
+        <button class="btn" id="stage_add" type="button">＋ 加一个时间段</button>
+      </div>
+      <p class="stage-empty" id="stage_empty">不设分段就全程按上面的「每月定投」。加一段即可表达：涨薪后每月多投、第 3 年起投 6000、第 8 年起停止……</p>
+      <div id="stage_rows"></div>
+      <p class="stage-chain" id="stage_chain"></p>
+    </div>
+
+    <!-- 参数持久化 -->
+    <div class="optrow" style="margin-top:16px; padding-top:12px; border-top:1px solid var(--gridline)">
+      <input type="checkbox" id="k_save" checked>
+      <label for="k_save">记住这次输入（保存在本浏览器，下次打开自动恢复）</label>
+      <button class="btn" id="b_reset" type="button" style="margin-left:auto">清空恢复默认</button>
+    </div>
+  </div>
+
+  <!-- 结果 -->
+  <div class="card">
+    <div class="k" style="font-size:12px;color:var(--text-secondary)">期末账户市值</div>
+    <div class="hero-val" id="hero">—</div>
+    <p class="hero-sub" id="herosub"></p>
+  </div>
+
+  <div class="tiles">
+    <div class="tile">
+      <div class="k"><span class="swatch" style="background:var(--series-1)"></span>累计投入本金</div>
+      <div class="v" id="t_prin">—</div><div class="m" id="t_prin_m"></div>
+    </div>
+    <div class="tile">
+      <div class="k"><span class="swatch" style="background:var(--series-2)"></span>投资收益</div>
+      <div class="v" id="t_gain">—</div><div class="m" id="t_gain_m"></div>
+    </div>
+    <div class="tile">
+      <div class="k">本金倍数</div>
+      <div class="v" id="t_mult">—</div><div class="m">期末市值 ÷ 累计本金</div>
+    </div>
+    <div class="tile">
+      <div class="k">同样的钱存银行</div>
+      <div class="v" id="t_bank">—</div><div class="m" id="t_bank_m"></div>
+    </div>
+    <div class="tile">
+      <div class="k">期末购买力（按通胀折现）</div>
+      <div class="v" id="t_real">—</div><div class="m" id="t_real_m"></div>
+    </div>
+  </div>
+
+  <!-- 图表 -->
+  <div class="card">
+    <div class="card-head">
+      <h2>资产构成随时间变化</h2>
+      <div class="seg">
+        <button class="btn" id="v_chart" type="button" aria-pressed="true">图表</button>
+        <button class="btn" id="v_table" type="button" aria-pressed="false">表格</button>
+      </div>
+    </div>
+    <div id="chartview">
+      <div class="chart-box" id="cbox">
+        <div class="chart-scroll"><svg id="svg" role="img" aria-label="账户市值与累计本金随年份变化"></svg></div>
+        <div class="tip" id="tip"></div>
+      </div>
+      <div class="legend">
+        <span><span class="swatch" style="background:var(--series-1)"></span>累计投入本金</span>
+        <span><span class="swatch" style="background:var(--series-2)"></span>投资收益</span>
+        <span><span class="swatch" style="width:14px;height:2px;border-radius:1px;background:var(--series-2)"></span>账户市值（本金＋收益）</span>
+      </div>
+    </div>
+    <div id="tableview" class="hidden" style="overflow-x:auto">
+      <table>
+        <thead><tr><th>年份</th><th>累计本金</th><th>投资收益</th><th>账户市值</th><th>当年投入</th><th>当年支取</th><th>年收益（停投）</th></tr></thead>
+        <tbody id="tbody"></tbody>
+      </table>
+    </div>
+  </div>
+
+  <!-- 停投之后：只在设了停投年份时出现 -->
+  <div class="card hidden" id="stopcard">
+    <h2 id="stoptitle">停投之后，钱自己会长成什么样</h2>
+    <p class="note" id="stopnote"></p>
+    <div class="dd" id="stopgrid"></div>
+  </div>
+
+  <!-- 回撤情景 -->
+  <div class="card">
+    <h2>如果期末正好碰上下跌</h2>
+    <p class="note">纳指历史最大回撤：2000–2002 年 −83%，2008 年 −54%，2022 年 −33%。取钱的时点由不了你，所以这一行值得看。</p>
+    <div class="dd" id="dd"></div>
+  </div>
+
+  <!-- 历史回测：把方案放到真实行情里 -->
+  <div class="card">
+    <h2>历史回测 · 同样的方案放在真实指数里</h2>
+    <div class="bt-opt">
+      <div class="ctrl">
+        <label for="n_btidx">回测指数</label>
+        <div class="row">
+          <select id="s_btidx" style="font:inherit;font-size:14px;width:100%;padding:7px 9px;color:var(--text-primary);background:var(--field);border:1px solid var(--border);border-radius:8px">
+            <option value="ndx" selected>纳斯达克100</option>
+            <option value="spx">标普500</option>
+          </select>
+        </div>
+      </div>
+      <div class="ctrl">
+        <label for="n_btwin">回测窗口</label>
+        <div class="row">
+          <select id="s_btwin" style="font:inherit;font-size:14px;width:100%;padding:7px 9px;color:var(--text-primary);background:var(--field);border:1px solid var(--border);border-radius:8px">
+            <option value="0">全部历史（自数据起点）</option>
+            <option value="30">最近 30 年</option>
+            <option value="20" selected>最近 20 年</option>
+            <option value="10">最近 10 年</option>
+          </select>
+        </div>
+      </div>
+      <div class="ctrl">
+        <label for="n_btdiv">分红再投资</label>
+        <div class="row">
+          <select id="s_btdiv" style="font:inherit;font-size:14px;width:100%;padding:7px 9px;color:var(--text-primary);background:var(--field);border:1px solid var(--border);border-radius:8px">
+            <option value="1" selected>加回分红（按指数股息率近似）</option>
+            <option value="0">不含分红（纯价格指数）</option>
+          </select>
+        </div>
+      </div>
+    </div>
+    <p class="bt-note" id="btnote"></p>
+    <div class="dd" id="btgrid"></div>
+    <p class="bt-note" id="btsince"></p>
+  </div>
+
+  <footer>
+    按月复利，定投于每月末投入；费率以「年化收益率 − 年费率」的方式近似扣除。<br>
+    结果为数学推算，不构成投资建议——历史收益率不保证未来重现。
+  </footer>
+</div>
+
+  <!-- 每日更新的数据(服务器 cron 生成);加载失败就用上面的内嵌数据 -->
+  <script src="ndx-data.js"></script>
+  <script src="spx-data.js"></script>
+  <script>
+  /* 纳指100 月末收盘(FRED NASDAQ100,价指数不含分红) 1986-01 ~ 2026-08,共 488 个月 */
+  var NDX_START = '1986-01';
+  var NDX_END = '2026-08';
+  var NDX_CLOSE = [132.9,140.4,148.9,154.9,163.2,162.6,144.5,151.7,137.5,144.5,147.9,141.4,166.7,182.8,186.0,184.8,188.8,189.2,196.3,209.6,205.5,150.1,137.1,156.2,159.1,172.6,173.3,175.9,173.3,189.0,181.2,171.0,179.4,174.8,169.2,177.4,186.5,183.8,185.9,200.5,214.5,204.6,214.3,222.0,226.4,222.6,224.4,223.8,201.9,207.9,213.2,205.8,236.2,238.5,223.4,193.6,177.1,172.6,192.7,200.5,232.4,250.1,264.9,263.6,279.0,254.2,272.1,287.4,287.5,292.5,284.8,330.9,338.3,345.9,323.1,307.9,315.3,301.2,310.9,299.3,313.2,329.1,351.0,360.2,370.6,351.1,359.4,339.9,368.1,366.1,352.9,372.6,382.7,391.0,386.8,398.3,414.0,412.2,383.0,373.2,378.9,360.3,370.2,397.9,393.9,413.1,404.8,404.3,405.3,432.5,447.1,469.6,488.1,538.0,568.9,576.8,585.1,598.8,593.7,576.2,591.8,622.8,609.7,666.7,692.4,677.3,636.0,663.6,737.6,752.0,834.0,821.4,921.5,850.5,797.1,874.7,958.9,957.3,1107.0,1074.2,1097.2,1019.6,1050.5,990.8,1071.1,1194.1,1220.7,1248.1,1192.1,1337.3,1377.3,1140.3,1345.5,1400.5,1558.0,1836.0,2127.2,1925.3,2106.4,2136.4,2089.7,2296.8,2270.9,2396.9,2407.9,2637.4,2966.7,3707.8,3570.1,4266.9,4397.8,3773.2,3324.1,3763.8,3609.3,4077.6,3570.6,3282.3,2506.5,2341.7,2593.0,1908.3,1573.2,1855.2,1799.9,1830.2,1683.6,1469.7,1168.4,1364.8,1596.0,1577.0,1550.2,1359.2,1452.8,1277.1,1208.4,1051.4,962.1,942.4,832.5,989.5,1116.1,984.3,996.0,1013.3,1032.9,1116.8,1201.2,1199.8,1298.8,1344.7,1302.3,1411.8,1426.8,1459.1,1487.8,1459.9,1448.0,1401.4,1469.2,1523.5,1412.0,1354.1,1403.9,1475.6,1571.1,1620.3,1513.1,1498.2,1478.7,1422.4,1542.6,1493.5,1605.1,1581.7,1601.7,1579.2,1672.6,1645.2,1710.8,1670.6,1703.7,1700.7,1579.6,1575.2,1509.4,1579.7,1654.1,1732.5,1791.2,1756.9,1792.3,1761.7,1772.4,1867.8,1928.2,1934.1,1932.1,1988.7,2091.1,2239.0,2089.1,2084.9,1841.4,1745.3,1781.9,1917.7,2032.6,1837.1,1849.2,1872.5,1594.6,1334.8,1185.8,1211.7,1180.2,1117.0,1237.0,1394.3,1435.6,1477.2,1603.4,1625.2,1719.0,1667.1,1767.4,1860.3,1741.0,1818.7,1958.3,2000.6,1852.4,1739.1,1864.0,1767.4,1998.0,2124.4,2117.3,2217.9,2281.9,2351.0,2339.0,2404.1,2372.5,2325.1,2362.8,2241.0,2139.2,2360.1,2295.2,2277.8,2467.9,2623.1,2755.3,2723.7,2524.9,2615.7,2642.5,2772.2,2799.2,2647.9,2677.9,2660.9,2731.5,2738.6,2818.7,2887.4,2981.8,2909.6,3090.2,3073.8,3218.2,3377.7,3487.8,3592.0,3521.9,3696.1,3595.7,3582.0,3736.8,3849.5,3892.5,4082.6,4049.4,4158.2,4337.8,4236.3,4148.4,4440.7,4333.7,4414.2,4508.2,4396.8,4588.9,4274.6,4181.1,4648.8,4664.5,4593.3,4279.2,4201.1,4483.7,4341.3,4523.9,4417.7,4730.2,4771.1,4875.7,4801.3,4810.8,4863.6,5116.8,5330.3,5436.2,5583.5,5788.8,5646.9,5880.3,5988.6,5979.3,6248.6,6365.6,6396.4,6950.0,6854.4,6581.1,6605.6,6967.7,7040.8,7232.0,7654.6,7627.6,6967.1,6949.0,6330.0,6906.8,7097.5,7378.8,7781.5,7128.0,7671.1,7848.8,7691.0,7749.4,8083.8,8403.7,8733.1,8991.5,8461.8,7813.5,9000.5,9555.5,10156.9,10905.9,12110.7,11418.1,11053.0,12268.3,12888.3,12925.4,12909.4,13091.4,13860.8,13686.5,14554.8,14959.9,15582.5,14689.6,15850.5,16135.9,16320.1,14930.0,14237.8,14838.5,12854.8,12642.1,11503.7,12948.0,12272.0,10971.2,11405.6,12030.1,10939.8,12101.9,12042.1,13181.4,13246.0,14254.1,15179.2,15757.0,15501.1,14715.2,14409.8,15947.9,16825.9,17137.2,18043.8,18254.7,17440.7,18536.7,19682.9,19362.4,19574.6,20060.7,19890.4,20930.4,21012.2,21478.0,20884.4,19278.5,19571.0,21341.0,22679.0,23218.1,23415.4,24680.0,25858.1,25434.9,25249.8,25552.4,24960.0,23740.2,27452.1,30333.2,30276.3,28274.2,29457.0];
+  /* 标普500 月度价指数(Shiller 数据集,价指数不含分红) 1986-01 ~ 2026-08,共 488 个月
+     注意:Shiller 的月度值是「当月日均」而非月末收盘,波动被略微抹平;
+     仅作 spx-data.js 未部署时的兜底,部署后即以月末真值为准。 */
+  var SPX_START = '1986-01';
+  var SPX_END = '2026-08';
+  var SPX_CLOSE = [208.2,219.4,232.3,238.0,238.5,245.3,240.2,245.0,238.3,237.4,245.1,248.6,264.5,280.9,292.5,289.3,289.1,301.4,310.1,329.4,318.7,280.2,245.0,241.0,250.5,258.1,265.7,262.6,256.1,270.7,269.1,263.7,268.0,277.4,271.0,276.5,285.4,294.0,292.7,302.3,313.9,323.7,331.9,346.6,347.3,347.4,340.2,348.6,340.0,330.4,338.5,338.2,350.2,360.4,360.0,330.8,315.4,307.1,315.3,328.8,325.5,362.3,372.3,379.7,378.0,378.3,380.2,389.4,387.2,386.9,385.9,388.5,416.1,412.6,407.4,407.4,414.8,408.3,415.1,417.9,418.5,412.5,422.8,435.6,435.2,441.7,450.2,443.1,445.2,448.1,447.3,454.1,459.2,463.9,462.9,465.9,473.0,471.6,463.8,447.2,450.9,454.8,451.4,464.2,467.0,463.8,461.0,455.2,465.2,481.9,493.1,507.9,523.8,539.4,557.4,559.1,578.8,582.9,595.5,614.6,614.4,649.5,647.1,647.2,661.2,668.5,644.1,662.7,674.9,701.5,735.7,743.2,766.2,798.4,792.2,763.9,833.1,876.3,925.3,927.2,937.0,951.2,938.9,962.4,963.4,1023.7,1076.8,1112.2,1108.4,1108.4,1156.6,1074.6,1020.6,1032.5,1144.4,1190.0,1248.8,1246.6,1281.7,1334.8,1332.1,1322.5,1381.0,1327.5,1318.2,1300.0,1391.0,1428.7,1425.6,1388.9,1442.2,1461.4,1418.5,1462.0,1473.0,1485.5,1468.0,1390.1,1378.0,1330.9,1335.6,1305.8,1185.8,1189.8,1270.4,1238.7,1204.5,1178.5,1044.6,1076.6,1129.7,1144.9,1140.2,1100.7,1153.8,1111.9,1079.2,1014.0,903.6,912.5,867.8,854.6,909.9,899.2,895.8,837.0,846.6,890.0,936.0,988.0,992.5,989.5,1019.4,1038.7,1049.9,1080.6,1132.5,1143.4,1124.0,1133.4,1102.8,1132.8,1105.8,1088.9,1117.7,1117.2,1168.9,1199.2,1181.4,1199.6,1194.9,1164.4,1178.3,1202.2,1222.2,1224.3,1225.9,1192.0,1237.4,1262.1,1278.7,1276.7,1293.7,1302.2,1290.0,1253.2,1260.2,1287.2,1317.7,1363.4,1388.6,1416.4,1424.2,1444.8,1407.0,1463.6,1511.1,1514.2,1520.7,1454.6,1497.1,1539.7,1463.4,1479.2,1378.8,1354.9,1316.9,1370.5,1403.2,1341.2,1257.3,1281.5,1217.0,968.8,883.0,877.6,865.6,805.2,757.1,848.1,902.4,926.1,935.8,1009.7,1044.5,1067.7,1088.1,1110.4,1123.6,1089.2,1152.0,1197.3,1125.1,1083.4,1079.8,1087.3,1122.1,1171.6,1198.9,1241.5,1282.6,1321.1,1304.5,1331.5,1338.3,1287.3,1325.2,1185.3,1173.9,1207.2,1226.4,1243.3,1300.6,1352.5,1389.2,1386.4,1341.3,1323.5,1359.8,1403.5,1443.4,1437.8,1394.5,1422.3,1480.4,1512.3,1550.8,1570.7,1639.8,1618.8,1668.7,1670.1,1687.2,1720.0,1783.5,1807.8,1822.4,1817.0,1863.5,1864.3,1889.8,1947.1,1973.1,1961.5,1993.2,1937.3,2044.6,2054.3,2028.2,2082.2,2080.0,2094.9,2111.9,2099.3,2094.1,2039.9,1944.4,2024.8,2080.6,2054.1,1918.6,1904.4,2022.0,2075.5,2065.6,2083.9,2148.9,2170.9,2157.7,2143.0,2165.0,2246.6,2275.1,2329.9,2366.8,2359.3,2395.3,2434.0,2454.1,2456.2,2492.8,2557.0,2593.6,2664.3,2789.8,2705.2,2702.8,2653.6,2701.5,2754.3,2793.6,2857.8,2901.5,2785.5,2723.2,2567.3,2607.4,2754.9,2804.0,2903.8,2854.7,2890.2,2996.1,2897.5,2982.2,2977.7,3104.9,3176.7,3278.2,3277.3,2652.4,2762.0,2919.6,3104.7,3207.6,3391.7,3365.5,3418.7,3549.0,3695.3,3793.7,3883.4,3910.5,4141.2,4167.8,4238.5,4363.7,4454.2,4445.5,4460.7,4667.4,4674.8,4573.8,4436.0,4391.3,4391.3,4040.4,3898.9,3911.7,4158.6,3850.5,3726.1,3917.5,3912.4,3960.7,4079.7,3968.6,4121.5,4146.2,4345.4,4508.1,4457.4,4515.8,4269.4,4460.1,4685.1,4804.5,5012.0,5170.6,5112.5,5235.2,5415.1,5538.0,5478.2,5621.3,5792.3,5929.9,6010.9,5979.5,6038.7,5684.0,5369.5,5810.9,6029.9,6296.5,6408.9,6584.0,6735.7,6740.9,6853.0,6929.1,6893.8,6654.4,6957.0,7412.6,7450.0,7481.3,7711.3];
+  </script>
+<script>
+(function () {
+  "use strict";
+
+  /* ---------------- 数值格式 ---------------- */
+  function yuan(v) {
+    var s = v < 0 ? "-" : "", a = Math.abs(v);
+    if (a >= 1e8) return s + (a / 1e8).toFixed(2) + " 亿";
+    if (a >= 1e4) return s + (a / 1e4).toFixed(a >= 1e6 ? 0 : 1) + " 万";
+    return s + Math.round(a).toLocaleString("zh-CN") + " 元";
+  }
+  function axisFmt(v) {
+    var a = Math.abs(v);
+    if (a >= 1e8) return (v / 1e8).toFixed(1) + "亿";
+    if (a >= 1e4) return Math.round(v / 1e4) + "万";
+    return String(Math.round(v));
+  }
+
+  /* ---------------- 输入绑定（数字框 ↔ 滑块） ---------------- */
+  var FIELDS = ["lump", "mon", "rate", "fee", "yrs", "stop", "spend"];
+  var el = {};
+  FIELDS.forEach(function (k) {
+    el[k] = { n: document.getElementById("n_" + k), r: document.getElementById("r_" + k) };
+  });
+  // 无滑块的简单控件:统一走 text/value 存取
+  var SIMPLE = {
+    start: document.getElementById("d_start"),
+    infl: document.getElementById("n_infl"),
+    growth: document.getElementById("n_growth"),
+    growthOn: document.getElementById("k_growth"),
+    save: document.getElementById("k_save"),
+    btidx: document.getElementById("s_btidx"),
+    btwin: document.getElementById("s_btwin"),
+    btdiv: document.getElementById("s_btdiv"),
+  };
+
+  function readVal(k) {
+    var raw = parseFloat(el[k].n.value);
+    if (!isFinite(raw)) raw = 0;
+    var lo = parseFloat(el[k].n.min), hi = parseFloat(el[k].n.max);
+    return Math.min(hi, Math.max(lo, raw));
+  }
+
+  FIELDS.forEach(function (k) {
+    el[k].n.addEventListener("input", function () {
+      // 滑块量程可能小于输入框量程；超出时滑块停在端点，不回写数字框
+      el[k].r.value = Math.min(parseFloat(el[k].r.max), Math.max(parseFloat(el[k].r.min), readVal(k)));
+      render(); saveState();
+    });
+    el[k].r.addEventListener("input", function () {
+      el[k].n.value = el[k].r.value;
+      render(); saveState();
+    });
+  });
+  Object.keys(SIMPLE).forEach(function (k) {
+    SIMPLE[k].addEventListener("input", function () { render(); saveState(); });
+  });
+
+  /* ---------------- 参数持久化（localStorage） ---------------- */
+  var SKEY = "qd_calc_state_v1";
+  function getState() {
+    var s = { f: {}, s: {} };
+    FIELDS.forEach(function (k) { s.f[k] = el[k].n.value; });
+    Object.keys(SIMPLE).forEach(function (k) {
+      s.s[k] = SIMPLE[k].type === "checkbox" ? SIMPLE[k].checked : SIMPLE[k].value;
+    });
+    s.stages = stages.map(function (x) { return { from: x.from, amt: x.amt }; });
+    return s;
+  }
+  function saveState() {
+    if (!SIMPLE.save.checked) return;
+    try { localStorage.setItem(SKEY, JSON.stringify(getState())); } catch (e) { /* 无痕模式等,静默 */ }
+  }
+  function loadState() {
+    var raw;
+    try { raw = localStorage.getItem(SKEY); } catch (e) { return; }
+    if (!raw) return;
+    try {
+      var s = JSON.parse(raw);
+      FIELDS.forEach(function (k) {
+        if (!(k in s.f)) return;
+        el[k].n.value = s.f[k];
+        var v = readVal(k);
+        el[k].r.value = Math.min(parseFloat(el[k].r.max), Math.max(parseFloat(el[k].r.min), v));
+      });
+      Object.keys(SIMPLE).forEach(function (k) {
+        if (!(k in s.s)) return;
+        if (SIMPLE[k].type === "checkbox") SIMPLE[k].checked = !!s.s[k];
+        else SIMPLE[k].value = s.s[k];
+      });
+      if (s.stages && s.stages.length) {
+        stages = s.stages.map(function (x) {
+          return { id: ++stageSeq, from: x.from, amt: x.amt };
+        });
+        renderStageRows();
+      }
+    } catch (e) { /* 存档坏了就用默认值 */ }
+  }
+  document.getElementById("b_reset").addEventListener("click", function () {
+    try { localStorage.removeItem(SKEY); } catch (e) {}
+    location.reload();
+  });
+
+  /* ---------------- 计算 ---------------- */
+  // 停投年份的上限要跟着投资年限走，不能停在年限之外
+  function syncStopRange() {
+    var yrs = Math.round(readVal("yrs"));
+    el.stop.n.max = yrs; el.stop.r.max = yrs;
+    if (parseFloat(el.stop.n.value) > yrs) { el.stop.n.value = yrs; el.stop.r.value = yrs; }
+  }
+
+  /* ---------------- 日历工具 ---------------- */
+  // "2026-09" -> 绝对月序号;非法输入返回 null
+  function absIndexOf(s) {
+    var p = String(s || "").split("-"), y = +p[0], m = +p[1];
+    return (y && m >= 1 && m <= 12) ? y * 12 + (m - 1) : null;
+  }
+  // 第 mi 个月(0起)的日历标签,如 2031-09;startAbs 无效返回 ""
+  function ymLabel(startAbs, mi) {
+    if (startAbs == null) return "";
+    var t = startAbs + mi;
+    return Math.floor(t / 12) + "-" + String(t % 12 + 1).padStart(2, "0");
+  }
+
+  /* ---- 分段定投 ----
+     stages: [{id, from: 第几个自然年(1起)生效, amt: 该年起每月投入(0=停投)}]
+     同一年重复时后面的段覆盖前面；没被任何段覆盖的年份沿用「每月定投」。 */
+  var stageSeq = 0, stages = [];
+  function stageList() {
+    return stages
+      .map(function (s) { return { y: Math.round(parseFloat(s.from)) || 0, amt: Math.max(0, parseFloat(s.amt) || 0) }; })
+      .filter(function (s) { return s.y >= 1; })
+      .sort(function (a, b) { return a.y - b.y; });
+  }
+  // （第 year 年的实际投入额由 compute 里的 baseAmt 统一计算，含递增）
+  function stageDesc(mon, yrs, st, gOn, g) {
+    if (!st.length && !gOn) return "";
+    var bounds = [1], parts = [], beyond = st.length && st[0].y > yrs;
+    st.forEach(function (s) { if (s.y >= 2) bounds.push(s.y); });
+    bounds.push(yrs + 1);
+    var amtOf = function (year) {
+      var amt = null, y0 = 1;
+      for (var i = 0; i < st.length; i++) { if (st[i].y <= year) { amt = st[i].amt; y0 = st[i].y; } else break; }
+      if (amt === null) { amt = mon; y0 = 1; }
+      return gOn && amt > 0 ? amt * Math.pow(1 + g, year - y0) : amt;
+    };
+    for (var i = 0; i < bounds.length - 1; i++) {
+      var a = bounds[i], b = bounds[i + 1] - 1;
+      if (b > yrs) b = yrs;
+      if (a > yrs) break;
+      var amt = amtOf(a);
+      parts.push("第 " + a + (b > a ? "–" + b + " 年" : " 年") + " " + (amt > 0 ? Math.round(amt).toLocaleString("zh-CN") + " 元/月" : "停投"));
+    }
+    return (gOn ? "每年 +" + (g * 100).toFixed(1) + "% ；" : "") +
+           "每月投入：" + parts.join("　→　") + (beyond ? "（有分段的起始年超出投资年限，暂不生效）" : "");
+  }
+
+  /* ---- 分段行的 DOM ---- */
+  var stageRows = document.getElementById("stage_rows"),
+      stageEmpty = document.getElementById("stage_empty"),
+      stageChain = document.getElementById("stage_chain");
+  function renderStageRows() {
+    stageRows.innerHTML = "";
+    stageEmpty.style.display = stages.length ? "none" : "";
+    stages.forEach(function (s, idx) {
+      var row = document.createElement("div");
+      row.className = "stage-row";
+
+      var lb1 = document.createElement("span"); lb1.textContent = "从第";
+      var y = document.createElement("input");
+      y.type = "number"; y.min = 1; y.max = 60; y.step = 1; y.value = s.from;
+      y.addEventListener("input", function () { s.from = y.value; render(); saveState(); });
+      var lb2 = document.createElement("span"); lb2.textContent = "年起 · 每月";
+      var a = document.createElement("input");
+      a.type = "number"; a.min = 0; a.max = 200000; a.step = 100; a.value = s.amt;
+      a.addEventListener("input", function () { s.amt = a.value; render(); saveState(); });
+      var u = document.createElement("span"); u.className = "u"; u.textContent = "元";
+      var x = document.createElement("button");
+      x.className = "x"; x.type = "button"; x.title = "删除"; x.textContent = "✕";
+      x.addEventListener("click", function () { stages.splice(idx, 1); renderStageRows(); render(); saveState(); });
+
+      row.append(lb1, y, lb2, a, u, x);
+      stageRows.appendChild(row);
+    });
+  }
+  document.getElementById("stage_add").addEventListener("click", function () {
+    var last = stages[stages.length - 1];
+    stages.push({ id: ++stageSeq, from: last ? Math.min(60, (parseFloat(last.from) || 1) + 1) : 2,
+                  amt: last ? (parseFloat(last.amt) || 0) : Math.round(readVal("mon")) });
+    renderStageRows(); render(); saveState();
+  });
+
+  function compute() {
+    var lump = readVal("lump"), mon = readVal("mon"),
+        yrs  = Math.round(readVal("yrs")),
+        stop0 = Math.round(readVal("stop")),      // 0 = 一直投到最后
+        spend = readVal("spend"),                 // 停投后每月支出
+        net  = (readVal("rate") - readVal("fee")) / 100,
+        // 「年化」按有效年利率理解：净 11% 就是一年整整长 11%，
+        // 而非名义 11%/12 逐月计（那样实际会变成 11.57%）
+        r    = Math.pow(1 + net, 1 / 12) - 1,
+        bank = Math.pow(1.015, 1 / 12) - 1,       // 货币基金 1.5% 作为对照
+        st   = stageList(),
+        gOn  = SIMPLE.growthOn.checked,
+        g    = Math.max(0, parseFloat(SIMPLE.growth.value) || 0) / 100;
+
+    // 有效停投年份 = 「第几年停止定投」与「分段中最早投 0 的年份」里更早的那个。
+    // 「从第 y 年起投 0」＝投满第 y-1 年，换算成停投年份是 y-1，与停投控件的语义对齐
+    var stageStop = 0;
+    st.forEach(function (s) {
+      if (s.amt === 0) { var c = s.y - 1; if (!stageStop || c < stageStop) stageStop = c; }
+    });
+    var stop = stop0 > 0 && stageStop > 0 ? Math.min(stop0, stageStop) : (stop0 > 0 ? stop0 : stageStop);
+    var stopM = stop > 0 ? stop * 12 : Infinity;
+
+    // 第 y 年（1 起）的“基准”每月投入与起算年：分段覆盖的年份用段额（该段起始年起算），
+    // 否则用全局定投（第 1 年起算）。勾选递增时再乘 (1+g)^(y − 起算年)。
+    function baseAmt(year) {
+      var amt = null, y0 = 1;
+      for (var i = 0; i < st.length; i++) {
+        if (st[i].y <= year) { amt = st[i].amt; y0 = st[i].y; } else break;
+      }
+      if (amt === null) { amt = mon; y0 = 1; }
+      var v = gOn ? amt * Math.pow(1 + g, year - y0) : amt;
+      return v;
+    }
+    // 第 mi 个月（0 起）的投入；过停投点后为 0
+    function payAt(mi) {
+      var year = Math.floor(mi / 12) + 1;
+      if (mi >= stopM) return 0;
+      return baseAmt(year);
+    }
+    // 对照组「若不停投」：按期间最高段额、同样递增，全程投，保证对照组投入 ≥ 实际
+    var contBase = mon, contY0 = 1;
+    st.forEach(function (s) { if (s.amt > contBase) { contBase = s.amt; contY0 = s.y; } });
+    function contAt(mi) {
+      var year = Math.floor(mi / 12) + 1;
+      return gOn ? contBase * Math.pow(1 + g, year - contY0) : contBase;
+    }
+
+    var bal = lump, prin = lump, bbal = lump,
+        cbal = lump, cprin = lump,               // 对照组：一直投不停、也不支取
+        drawn = 0, depleteM = 0,
+        mi = 0, pts = [];
+    var startAbs = absIndexOf(SIMPLE.start.value);
+    pts.push({ y: 0, prin: prin, val: bal, bank: bbal, cont: cbal,
+               inYear: lump, drawn: 0, outYear: 0 });
+
+    for (var y = 1; y <= yrs; y++) {
+      var paid = 0, took = 0;
+      for (var m = 0; m < 12; m++) {
+        var pay = payAt(mi);
+        bal  = bal  * (1 + r)    + pay;
+        bbal = bbal * (1 + bank) + pay;
+        prin += pay; paid += pay;
+
+        if (stop > 0 && mi >= stopM && spend > 0) {
+          var take = Math.min(spend, bal);       // 余额不足时只能取出剩下的
+          bal -= take; bbal = Math.max(0, bbal - spend);
+          drawn += take; took += take;
+          if (bal <= 0 && !depleteM) depleteM = mi + 1;   // 记录耗尽的月份
+        }
+        var cpay = contAt(mi);
+        cbal = cbal * (1 + r) + cpay; cprin += cpay;
+        mi++;
+      }
+      pts.push({ y: y, prin: prin, val: bal, bank: bbal, cont: cbal,
+                 inYear: paid, drawn: drawn, outYear: took });
+    }
+
+    // 停投时点的市值决定了「每月能取多少而本金不减」。
+    // 注意要用真实月利率 r，不能用 net/12——后者高估月收益（11% 年化下每月差 500 元）
+    var atStop = stop > 0 && stop <= yrs ? pts[stop].val : 0;
+    return { pts: pts, yrs: yrs, net: net, mrate: r, lump: lump, mon: mon,
+             stop: stop, spend: spend, contPrin: cprin, drawn: drawn,
+             depleteM: depleteM, sustain: atStop * r,
+             payAt: payAt, startAbs: startAbs, infl: Math.max(0, parseFloat(SIMPLE.infl.value) || 0) / 100,
+             growthOn: gOn, growth: g,
+             stDesc: stageDesc(mon, yrs, st, gOn, g) };
+  }
+
+  /* ---------------- 图表 ---------------- */
+  var SVG = "http://www.w3.org/2000/svg";
+  function mk(tag, attrs) {
+    var n = document.createElementNS(SVG, tag);
+    for (var k in attrs) n.setAttribute(k, attrs[k]);
+    return n;
+  }
+  function niceTicks(max) {
+    if (max <= 0) return [0, 1];
+    var raw = max / 5, mag = Math.pow(10, Math.floor(Math.log10(raw))), n = raw / mag;
+    var step = (n <= 1 ? 1 : n <= 2 ? 2 : n <= 2.5 ? 2.5 : n <= 5 ? 5 : 10) * mag;
+    // 顶端刻度必须 >= 最大值。此前循环停在 max 以下，ymax 比数据还小，
+    // 曲线就会冲出画布顶部被裁掉（116 万配 100 万的刻度顶）
+    var top = Math.ceil(max / step) * step, out = [];
+    for (var v = 0; v <= top + step * 0.001; v += step) out.push(v);
+    return out;
+  }
+
+  var svg = document.getElementById("svg"),
+      cbox = document.getElementById("cbox"),
+      tip = document.getElementById("tip"),
+      hot = null, geom = null;
+
+  function drawChart(d) {
+    while (svg.firstChild) svg.removeChild(svg.firstChild);
+
+    var W = Math.max(260, cbox.clientWidth || 700),
+        PLOT_H = 300,                            // 固定像素高度，不随宽度缩水
+        // 右边给端点标注留出宽度，底部同时容纳 x 轴文字带
+        M = { t: 30, r: 20, b: 34, l: 60 },
+        H = PLOT_H + M.t + M.b,
+        iw = W - M.l - M.r, ih = PLOT_H;
+
+    svg.setAttribute("viewBox", "0 0 " + W + " " + H);
+    svg.setAttribute("width", W); svg.setAttribute("height", H);
+
+    var pts = d.pts;
+    var top = 0;
+    pts.forEach(function (p) { top = Math.max(top, p.val, p.prin); });
+    var ticks = niceTicks(top || 1), ymax = ticks[ticks.length - 1] || 1;
+
+    var X = function (y) { return M.l + (d.yrs ? y / d.yrs * iw : 0); };
+    var Y = function (v) { return M.t + ih - (v / ymax) * ih; };
+
+    // 网格线（实线细线，比表面深一档）
+    ticks.forEach(function (t) {
+      svg.appendChild(mk("line", { x1: M.l, x2: M.l + iw, y1: Y(t), y2: Y(t),
+        stroke: "var(--gridline)", "stroke-width": 1 }));
+      var lb = mk("text", { x: M.l - 9, y: Y(t) + 4, "text-anchor": "end",
+        fill: "var(--text-muted)", "font-size": 11, "font-variant-numeric": "tabular-nums" });
+      lb.textContent = axisFmt(t);
+      svg.appendChild(lb);
+    });
+
+    // x 轴刻度密度跟着可用宽度走，窄屏才不会把年份挤成一团
+    // 有起始年月时显示真实年份(2026、2027…)，否则显示第 N 年
+    var stepX = Math.max(1, Math.ceil(d.yrs / Math.max(3, Math.floor(iw / 46))));
+    var y0 = d.startAbs != null ? Math.floor(d.startAbs / 12) : null;
+    for (var y = 0; y <= d.yrs; y += stepX) {
+      var xt = mk("text", { x: X(y), y: M.t + ih + 19, "text-anchor": "middle",
+        fill: "var(--text-muted)", "font-size": 11, "font-variant-numeric": "tabular-nums" });
+      xt.textContent = y0 != null ? String(y0 + y) : y + "年";
+      svg.appendChild(xt);
+    }
+    svg.appendChild(mk("line", { x1: M.l, x2: M.l + iw, y1: Y(0), y2: Y(0),
+      stroke: "var(--baseline)", "stroke-width": 1 }));
+
+    // 停投标记：属于图表 chrome，用中性色，不占categorical色位
+    if (d.stop > 0 && d.stop < d.yrs) {
+      var xs = X(d.stop), txt = d.spend > 0 ? "停投取用" : "停投";
+      svg.appendChild(mk("line", { x1: xs, x2: xs, y1: M.t, y2: M.t + ih,
+        stroke: "var(--baseline)", "stroke-width": 1 }));
+      var right = xs + 5 + txt.length * 11 <= M.l + iw;   // 靠近右缘就改成朝左标注
+      var sl = mk("text", { x: xs + (right ? 5 : -5), y: M.t + 11,
+        "text-anchor": right ? "start" : "end",
+        fill: "var(--text-muted)", "font-size": 11 });
+      sl.textContent = txt;
+      svg.appendChild(sl);
+    }
+
+    function path(sel) {
+      return pts.map(function (p, i) { return (i ? "L" : "M") + X(p.y) + " " + Y(sel(p)); }).join(" ");
+    }
+    var prinLine = path(function (p) { return p.prin; }),
+        valLine  = path(function (p) { return p.val; });
+
+    // 本金面积（底层填充）
+    svg.appendChild(mk("path", {
+      d: prinLine + " L" + X(d.yrs) + " " + Y(0) + " L" + X(0) + " " + Y(0) + " Z",
+      fill: "var(--series-1)", "fill-opacity": 0.18
+    }));
+    // 收益区间 = 两条曲线之间；正负皆可正确成形
+    var rev = pts.slice().reverse().map(function (p, i) {
+      return (i ? "L" : "L") + X(p.y) + " " + Y(p.prin);
+    }).join(" ");
+    svg.appendChild(mk("path", {
+      d: valLine + " " + rev + " Z", fill: "var(--series-2)", "fill-opacity": 0.16
+    }));
+
+    // 本金上沿：2px 表面色描边形成填充之间的间隙，再压 1.5px 本色线
+    svg.appendChild(mk("path", { d: prinLine, fill: "none", stroke: "var(--surface-1)", "stroke-width": 4 }));
+    svg.appendChild(mk("path", { d: prinLine, fill: "none", stroke: "var(--series-1)", "stroke-width": 1.5 }));
+    // 市值线（主线，2px）
+    svg.appendChild(mk("path", { d: valLine, fill: "none", stroke: "var(--series-2)",
+      "stroke-width": 2, "stroke-linejoin": "round", "stroke-linecap": "round" }));
+
+    // 端点直接标注（仅端点）。两条线可能重合，标签要先拉开间距，
+    // 再把这一对作为整体平移进绘图区——先夹取会把刚拉开的间距又压回去
+    var last = pts[pts.length - 1],
+        yv = Y(last.val), yp = Y(last.prin),
+        lo = M.t - 2, hi = M.t + ih - 5,
+        valAbove = yv <= yp,
+        up = (valAbove ? yv : yp) - 11,
+        dn = (valAbove ? yp : yv) + 19;
+    if (dn - up < 24) { var mid = (up + dn) / 2; up = mid - 12; dn = mid + 12; }
+    if (up < lo) { dn += lo - up; up = lo; }        // 整体下移
+    if (dn > hi) { up -= dn - hi; dn = hi; }        // 整体上移
+    if (up < lo) up = lo;
+
+    [[last.val, "var(--series-2)", yv, valAbove ? up : dn],
+     [last.prin, "var(--series-1)", yp, valAbove ? dn : up]].forEach(function (a) {
+      svg.appendChild(mk("circle", { cx: X(last.y), cy: a[2], r: 4.5,
+        fill: a[1], stroke: "var(--surface-1)", "stroke-width": 2 }));
+      var t = mk("text", { x: X(last.y) - 9, y: a[3], "text-anchor": "end",
+        fill: a[1], "font-size": 12, "font-weight": 600 });
+      t.textContent = yuan(a[0]);
+      svg.appendChild(t);
+    });
+
+    // 悬停层：整条纵带都是命中区，远大于标记本身
+    hot = mk("g", {});
+    var cross = mk("line", { y1: M.t, y2: M.t + ih, stroke: "var(--baseline)",
+      "stroke-width": 1, opacity: 0 });
+    hot.appendChild(cross);
+    var dot1 = mk("circle", { r: 5, fill: "var(--series-2)", stroke: "var(--surface-1)", "stroke-width": 2, opacity: 0 });
+    var dot2 = mk("circle", { r: 5, fill: "var(--series-1)", stroke: "var(--surface-1)", "stroke-width": 2, opacity: 0 });
+    hot.appendChild(dot1); hot.appendChild(dot2);
+    var rect = mk("rect", { x: M.l, y: M.t, width: iw, height: ih, fill: "transparent" });
+    hot.appendChild(rect);
+    svg.appendChild(hot);
+
+    geom = { X: X, Y: Y, pts: pts, M: M, iw: iw, ih: ih, W: W, net: d.net, mrate: d.mrate, mon: d.mon,
+             stop: d.stop, spend: d.spend, startAbs: d.startAbs,
+             cross: cross, dot1: dot1, dot2: dot2, rect: rect };
+    bindHover();
+  }
+
+  function bindHover() {
+    var g = geom;
+    function show(evt) {
+      var box = svg.getBoundingClientRect(),
+          px = (evt.clientX - box.left) * (g.W / box.width),
+          frac = (px - g.M.l) / g.iw,
+          i = Math.round(frac * (g.pts.length - 1));
+      i = Math.min(g.pts.length - 1, Math.max(0, i));
+      var p = g.pts[i], x = g.X(p.y);
+
+      g.cross.setAttribute("x1", x); g.cross.setAttribute("x2", x); g.cross.setAttribute("opacity", 1);
+      g.dot1.setAttribute("cx", x); g.dot1.setAttribute("cy", g.Y(p.val)); g.dot1.setAttribute("opacity", 1);
+      g.dot2.setAttribute("cx", x); g.dot2.setAttribute("cy", g.Y(p.prin)); g.dot2.setAttribute("opacity", 1);
+
+      // 停止追加本金后，这笔钱靠自身收益率一年能挣多少。
+      // 已经过了停投点的话，这就不是假设，而是实际的年收益了
+      // （yearIn 用该年实际投入——分段定投下每年的投入可能不同）
+      var annual = p.val * g.net, monthly = p.val * g.mrate, yearIn = p.inYear,
+          stopped = g.stop > 0 && p.y >= g.stop,
+          spending = stopped && g.spend > 0,
+          flag = "", extra = "";
+
+      if (spending) {
+        // 收益覆不覆盖得住支出，决定账户是永续还是被吃空——按月对按月比
+        extra = '<div class="r"><span class="lb">累计取出</span><b>' + yuan(p.drawn) + "</b></div>";
+        flag = g.spend <= monthly
+          ? '<div class="flag">每月取 ' + yuan(g.spend) + " 在收益之内，本金不减</div>"
+          : '<div class="flag down">每月缺 ' + yuan(g.spend - monthly) + "，差额在吃本金</div>";
+      } else if (!stopped && yearIn > 0 && annual > yearIn) {
+        flag = '<div class="flag">已超过你一年投入的 ' + yuan(yearIn) + " —— 钱挣的比你投的多了</div>";
+      }
+
+      var yLbl = g.startAbs != null ? "（" + ymLabel(g.startAbs, p.y * 12 - 1) + "）" : "";
+      tip.innerHTML =
+        '<div class="t">第 ' + p.y + ' 年' + (p.y > 0 ? yLbl : "") +
+        (spending ? "（取用中）" : stopped ? "（已停投）" : "") + '</div>' +
+        '<div class="r"><span class="lb"><span class="swatch" style="background:var(--series-2)"></span>账户市值</span><b>' + yuan(p.val) + '</b></div>' +
+        '<div class="r"><span class="lb"><span class="swatch" style="background:var(--series-1)"></span>累计本金</span><b>' + yuan(p.prin) + '</b></div>' +
+        '<div class="r"><span class="lb">投资收益</span><b>' + yuan(p.val - p.prin + p.drawn) + '</b></div>' + extra +
+        '<div class="hr"></div>' +
+        '<div class="cap">' + (stopped ? "已停投，这就是实际收益" : "若此后不再投入本金") + '</div>' +
+        '<div class="r"><span class="lb">年收益</span><b>' + yuan(annual) + '</b></div>' +
+        '<div class="r"><span class="lb">每月可取</span><b>' + yuan(monthly) + "</b></div>" + flag;
+      tip.classList.add("on");
+
+      // 浮层变高了，纵向也要夹住，别掉出图表区
+      var scale = box.width / g.W, lx = x * scale + 14;
+      if (lx + tip.offsetWidth > box.width) lx = x * scale - tip.offsetWidth - 14;
+      tip.style.left = Math.max(0, lx) + "px";
+      tip.style.top = Math.max(0, Math.min(g.Y(p.val) * scale - 12,
+                                           box.height - tip.offsetHeight)) + "px";
+    }
+    function hide() {
+      tip.classList.remove("on");
+      g.cross.setAttribute("opacity", 0);
+      g.dot1.setAttribute("opacity", 0); g.dot2.setAttribute("opacity", 0);
+    }
+    g.rect.addEventListener("mousemove", show);
+    g.rect.addEventListener("mouseleave", hide);
+    g.rect.addEventListener("touchmove", function (e) {
+      if (e.touches[0]) { show(e.touches[0]); e.preventDefault(); }
+    }, { passive: false });
+    g.rect.addEventListener("touchend", hide);
+  }
+
+  /* ---------------- 表格 / 回撤 / 概要 ---------------- */
+  function drawTable(d) {
+    var b = document.getElementById("tbody"), h = "";
+    d.pts.forEach(function (p) {
+      // 有支出时看月收益盖不盖得住月支出，没支出时看年收益超没超过当年投入
+      var annual = p.val * d.net,
+          yearIn = p.inYear,
+          spending = d.stop > 0 && p.y >= d.stop && d.spend > 0,
+          good = spending ? d.spend <= p.val * d.mrate : (yearIn > 0 && annual > yearIn);
+      var yLbl = p.y === 0 ? "起始" : "第 " + p.y + " 年" +
+        (d.startAbs != null ? "（" + ymLabel(d.startAbs, p.y * 12 - 1) + "）" : "");
+      h += "<tr><td>" + yLbl + "</td><td>" +
+        yuan(p.prin) + "</td><td>" + yuan(p.val - p.prin + p.drawn) + "</td><td>" +
+        yuan(p.val) + "</td><td>" + yuan(p.inYear) + "</td><td>" +
+        (p.outYear ? "−" + yuan(p.outYear) : "—") + '</td><td' +
+        (good ? ' class="up"' : spending ? ' class="down"' : "") + ">" +
+        yuan(annual) + "</td></tr>";
+    });
+    b.innerHTML = h;
+  }
+
+  function drawDrawdown(d) {
+    var last = d.pts[d.pts.length - 1], box = document.getElementById("dd"), h = "";
+    [0.20, 0.35, 0.50].forEach(function (dd) {
+      var after = last.val * (1 - dd), diff = after - last.prin, ok = diff >= 0;
+      h += '<div class="dd-item"><div class="k">回撤 ' + (dd * 100) + "%</div>" +
+        '<div class="v">' + yuan(after) + "</div>" +
+        '<div class="m ' + (ok ? "up" : "down") + '">' +
+        (ok ? "仍高于本金 " : "低于本金 ") + yuan(Math.abs(diff)) + "</div></div>";
+    });
+    box.innerHTML = h;
+  }
+
+  function drawStop(d) {
+    var card = document.getElementById("stopcard");
+    if (!d.stop || d.stop >= d.yrs) { card.classList.add("hidden"); return; }
+    card.classList.remove("hidden");
+
+    var at = d.pts[d.stop], last = d.pts[d.pts.length - 1],
+        left = d.yrs - d.stop, rows;
+
+    if (d.spend > 0) {
+      // 支出能否被收益覆盖，决定账户是永续还是被吃空
+      var sus = d.sustain, gap = d.spend - sus, over = gap > 0,
+          endTxt, endSub;
+      if (d.depleteM) {
+        var dy = Math.ceil(d.depleteM / 12), dm = ((d.depleteM - 1) % 12) + 1;
+        endTxt = "第 " + dy + " 年耗尽";
+        endSub = "撑了 " + (dy - d.stop) + " 年零 " + (dm - 1) + " 个月";
+      } else {
+        endTxt = yuan(last.val);
+        endSub = last.val >= at.val ? "比停投时还多 " + yuan(last.val - at.val)
+                                    : "比停投时少 " + yuan(at.val - last.val);
+      }
+      document.getElementById("stoptitle").textContent = "停投之后：一边取钱花，一边靠复利";
+      document.getElementById("stopnote").textContent =
+        "第 " + d.stop + " 年停止定投，此后每月取 " +
+        Math.round(d.spend).toLocaleString("zh-CN") + " 元花，账户再走 " + left + " 年。";
+      rows = [
+        ["停投时市值", yuan(at.val), "第 " + d.stop + " 年末", ""],
+        ["每月可持续支取", yuan(sus), "取这个数，本金原地不动", ""],
+        ["你设定的支出", yuan(d.spend),
+          over ? "超出可持续额 " + yuan(gap) + "，本金会被吃" : "低于可持续额，账户仍在长",
+          over ? "down" : "up"],
+        [d.depleteM ? "本金耗尽" : "期末市值", endTxt, endSub, d.depleteM ? "down" : ""],
+        ["累计取出", yuan(d.drawn), "这 " + left + " 年一共花掉", ""]
+      ];
+    } else {
+      document.getElementById("stoptitle").textContent = "停投之后，钱自己会长成什么样";
+      document.getElementById("stopnote").textContent =
+        "第 " + d.stop + " 年停止定投，此后一分钱不再投入，账户靠自身收益再走 " + left + " 年。";
+      var grown = last.val - at.val;
+      rows = [
+        ["停投时市值", yuan(at.val), "第 " + d.stop + " 年末", ""],
+        ["期末市值", yuan(last.val), "第 " + d.yrs + " 年末", ""],
+        ["这 " + left + " 年纯复利增长", yuan(grown),
+          at.val > 0 ? "未追加本金，长到 " + (last.val / at.val).toFixed(2) + " 倍" : "",
+          grown >= 0 ? "up" : "down"],
+        ["每月可持续支取", yuan(d.sustain), "从停投时起取这个数，本金不减", ""],
+        ["若不停投", yuan(last.cont),
+          "要多投 " + yuan(d.contPrin - last.prin) + "，期末多 " + yuan(last.cont - last.val), ""]
+      ];
+    }
+
+    var h = "";
+    rows.forEach(function (t) {
+      h += '<div class="dd-item"><div class="k">' + t[0] + '</div><div class="v ' + t[3] +
+           '">' + t[1] + '</div><div class="m">' + t[2] + "</div></div>";
+    });
+    document.getElementById("stopgrid").innerHTML = h;
+  }
+
+  function drawSummary(d) {
+    var last = d.pts[d.pts.length - 1],
+        gain = last.val - last.prin + d.drawn,   // 取出去的钱也是赚到的，要算进收益
+        mult = last.prin > 0 ? last.val / last.prin : 0;
+
+    document.getElementById("hero").textContent = yuan(last.val);
+    document.getElementById("herosub").textContent =
+      "投入本金 " + yuan(last.prin) + "，" + (gain >= 0 ? "赚 " : "亏 ") + yuan(Math.abs(gain)) +
+      (d.drawn > 0 ? "，已取出 " + yuan(d.drawn) : "") + "，历时 " + d.yrs + " 年";
+
+    document.getElementById("t_prin").textContent = yuan(last.prin);
+    document.getElementById("t_prin_m").textContent = d.stDesc
+      ? "初始 " + yuan(d.lump) + " ＋ 分段定投" + (d.stop && d.stop < d.yrs ? "，投至第 " + d.stop + " 年" : "")
+      : "初始 " + yuan(d.lump) + " ＋ 每月 " + Math.round(d.mon).toLocaleString("zh-CN") + " 元" +
+        (d.stop && d.stop < d.yrs ? "，投至第 " + d.stop + " 年" : "");
+
+    document.getElementById("t_gain").textContent = yuan(gain);
+    document.getElementById("t_gain_m").textContent =
+      "占期末市值 " + (last.val ? (gain / last.val * 100).toFixed(0) : 0) + "%";
+
+    document.getElementById("t_mult").textContent = mult.toFixed(2) + "x";
+
+    document.getElementById("t_bank").textContent = yuan(last.bank);
+    document.getElementById("t_bank_m").textContent =
+      "货基 1.5%，相差 " + yuan(last.val - last.bank);
+
+    // 期末市值按通胀折回今天的购买力
+    var real = last.val / Math.pow(1 + d.infl, d.yrs);
+    document.getElementById("t_real").textContent = yuan(real);
+    document.getElementById("t_real_m").textContent =
+      d.infl > 0 ? "按 " + (d.infl * 100).toFixed(1) + "%/年 通胀，" + d.yrs + " 年后市值 " +
+        yuan(last.val) + " ≈ 今天的 " + yuan(real) : "未设通胀率";
+
+    document.getElementById("netnote").textContent =
+      "扣费后净年化 " + ((readVal("rate") - readVal("fee"))).toFixed(1) +
+      "%（" + readVal("rate").toFixed(1) + "% 收益 − " + readVal("fee").toFixed(1) + "% 费率）。" +
+      "参考：纳指 100 长期年化约 10%~13%，过去十年更高，但 2000–2010 那十年为负。";
+  }
+
+  /* ---------------- 历史回测 ---------------- */
+  // 数据三层优先级:浏览器实时(JSONP,东财月K,访问者网络决定成败)
+  //   > 同目录静态文件(cron 生成,window.NDX_DATA/SPX_DATA) > 页面内嵌快照。
+  // 每个指数档案: yld = 长期股息率(年化),勾选「分红再投资」时按月加回——
+  // 两者都是价指数,本身不含分红; emSec = 东财 secid 候选,按序试。
+  var IDX = {
+    ndx: { name: "纳指100", full: "纳斯达克100", yld: 0.008,
+           extName: "NDX_DATA", extFile: "ndx-data.js",
+           emSec: ["100.NDX", "100.NDX100"], emName: "100", ref: 29000, minM: 400,
+           emb: { start: NDX_START, end: NDX_END, closes: NDX_CLOSE } },
+    spx: { name: "标普500", full: "标普500", yld: 0.018,
+           extName: "SPX_DATA", extFile: "spx-data.js",
+           emSec: ["100.SPX", "100.INX"], emName: "标普", ref: 7700, minM: 240,
+           emb: { start: SPX_START, end: SPX_END, closes: SPX_CLOSE } },
+  };
+  function idxKey() {
+    var k = SIMPLE.btidx.value;
+    return IDX[k] ? k : "ndx";
+  }
+  function idxData(key) {
+    var c = IDX[key], e = window[c.extName], emb = c.emb;
+    if (LIVE[key]) return LIVE[key];
+    // 静态文件(cron 生成)只要"不比内嵌快照旧"就用它;各源起始月不完全一致
+    // (FRED 的标普500 只回到 1987-08),所以不能卡 start 必须更早,否则会被永久拒用。
+    var extOk = e && e.closes && e.closes.length > 100 &&
+      (!emb || String(e.end) >= String(emb.end) || e.closes.length >= emb.closes.length);
+    if (extOk) return { start: e.start, end: e.end, updated: e.updated, closes: e.closes, ext: true };
+    if (emb && emb.closes)
+      return { start: emb.start, end: emb.end, updated: "", closes: emb.closes, ext: false };
+    return null;      // 三层都没有
+  }
+
+  /* ---- 浏览器实时层:JSONP 拉东财月K ----
+     取数发生在访问者浏览器里(国内网络普遍可达东财;海外失败就走兜底),
+     拉回来的数据过与 update_ndx.sh 同款防呆:名称 / 月份数 / 末月新鲜度 / 末值量级。 */
+  var LIVE = {};                       // kind -> {start,end,updated,closes,live:true}
+  function todayStr() { var d = new Date(); return d.getFullYear() + "-" + String(d.getMonth() + 1).padStart(2, "0") + "-" + String(d.getDate()).padStart(2, "0"); }
+  function liveCacheGet(kind) {
+    try {
+      var o = JSON.parse(localStorage.getItem("qd_live_" + kind) || "null");
+      return o && o.day === todayStr() ? o : null;   // 只认当天缓存
+    } catch (e) { return null; }
+  }
+  function liveCachePut(kind, o) {
+    try { o.day = todayStr(); localStorage.setItem("qd_live_" + kind, JSON.stringify(o)); } catch (e) {}
+  }
+  // 月K JSON -> {start,end,closes};校验与 update_ndx.sh 对齐
+  function liveParse(kind, json) {
+    var c = IDX[kind], d = json && json.data;
+    if (!d || !isArrayLike(d.klines) || String(d.name || "").indexOf(c.emName) < 0) return null;
+    var cur = todayStr().slice(0, 7), byM = {};
+    for (var i = 0; i < d.klines.length; i++) {
+      var p = String(d.klines[i]).split(","), m = (p[0] || "").slice(0, 7), v = parseFloat(p[1]);
+      if (!/^\d{4}-\d{2}$/.test(m) || m === cur || !(v > 0)) continue;   // 未走完的当月剔除
+      byM[m] = v;                                                        // 同月后值覆盖前值=月末
+    }
+    var ms = Object.keys(byM).sort();
+    if (ms.length < c.minM) return null;
+    var lastM = ms[ms.length - 1], lastV = byM[lastM];
+    var lm = new Date(); lm.setDate(1); lm.setMonth(lm.getMonth() - 1);
+    var lmStr = lm.getFullYear() + "-" + String(lm.getMonth() + 1).padStart(2, "0");
+    if (lastM !== cur && lastM !== lmStr) return null;                   // 末月必须够"新"
+    if (!(lastV > c.ref * 0.55 && lastV < c.ref * 1.8)) return null;     // 量级校验
+    return { start: ms[0], end: lastM, updated: todayStr(), closes: ms.map(function (m) { return byM[m]; }), live: true };
+  }
+  function isArrayLike(x) { return Object.prototype.toString.call(x) === "[object Array]"; }
+  function liveJsonp(kind, secid, done) {
+    var name = "qd_jsonp_" + kind + "_" + secid.replace(/\W/g, "_");
+    var s = document.createElement("script");
+    var t = setTimeout(finish, 8000);
+    function finish(j) {
+      clearTimeout(t);
+      if (s.parentNode) s.parentNode.removeChild(s);
+      try { delete window[name]; } catch (e) { window[name] = undefined; }
+      done(j || null);
+    }
+    window[name] = finish;
+    s.onerror = function () { finish(null); };
+    s.src = "https://push2his.eastmoney.com/api/qt/stock/kline/get?secid=" + secid +
+      "&fields1=f1,f2,f3&fields2=f51,f53&klt=103&fqt=0&beg=19800101&end=20500101&lmt=1000000&cb=" + name;
+    (document.body || document.documentElement).appendChild(s);
+  }
+  function liveFetch(kind, cb) {   // 按候选 secid 依次试,第一个通过校验的胜出
+    var secs = IDX[kind].emSec, i = 0;
+    (function next() {
+      if (i >= secs.length) return cb(null);
+      liveJsonp(kind, secs[i++], function (j) {
+        var ok = liveParse(kind, j);
+        ok ? cb(ok) : next();
+      });
+    })();
+  }
+  function initLive() {
+    if (!document.createElement) return;
+    Object.keys(IDX).forEach(function (kind) {
+      var cached = liveCacheGet(kind);
+      if (cached) { LIVE[kind] = cached; render(); }        // 先用当天缓存渲染
+      liveFetch(kind, function (d) {
+        if (!d) return;                                     // 失败:保持静态/内嵌
+        LIVE[kind] = d; liveCachePut(kind, d); render();    // 成功:覆盖并重绘
+      });
+    });
+  }
+  function idxLabel(startYM, idx) {   // 数据下标 -> "1986-01"
+    var p = startYM.split("-"), abs = (+p[0]) * 12 + (+p[1] - 1) + idx;
+    return Math.floor(abs / 12) + "-" + String(abs % 12 + 1).padStart(2, "0");
+  }
+  function backtest(d) {
+    var key = idxKey(), prof = IDX[key], data = idxData(key);
+    if (!data) return { err: prof.name + " 数据未加载——请在同目录放 " + prof.extFile +
+      "（由 update_ndx.sh 生成），或改用纳斯达克100" };
+    var need = d.yrs * 12, closes = data.closes;
+    var rets = [], divOn = SIMPLE.btdiv.value === "1",
+        divM = Math.pow(1 + prof.yld, 1 / 12) - 1, feeM = readVal("fee") / 100 / 12;
+    for (var i = 0; i < closes.length - 1; i++)
+      rets.push(closes[i + 1] / closes[i] - 1 + (divOn ? divM : 0) - feeM);
+
+    var maxS = rets.length - need;
+    if (maxS < 1) return { err: "回测需要至少 " + d.yrs + " 年历史数据（" + prof.name + " 当前到 " + idxLabel(data.start, closes.length - 1) + "）" };
+    var winYrs = Math.round(parseFloat(SIMPLE.btwin.value) || 0);
+    var minS = winYrs > 0 ? Math.max(0, maxS - winYrs * 12) : 0;
+    if (maxS - minS < 2) return { err: "回测窗口太短，凑不出几个完整" + d.yrs + "年期——换「全部历史」或缩短年限" };
+
+    var stopM = d.stop > 0 ? d.stop * 12 : Infinity,
+        spend = d.spend;
+    var finals = [], lost = 0, beat = 0, worst = null, best = null;
+    var flatFinal = d.pts[d.pts.length - 1].val;     // 同方案的固定利率投影
+    for (var s = minS; s <= maxS; s++) {
+      var bal = d.lump, mi = 0;
+      for (; mi < need; mi++) {
+        bal = bal * (1 + rets[s + mi]) + d.payAt(mi);
+        if (d.stop > 0 && mi >= stopM && spend > 0) bal = Math.max(0, bal - spend);
+      }
+      var prin = d.pts[d.pts.length - 1].prin;       // 投入与行情无关,固定
+      finals.push(bal);
+      if (bal < prin) lost++;
+      if (bal > flatFinal) beat++;
+      if (!worst || bal < worst.val) worst = { val: bal, s: s };
+      if (!best  || bal > best.val)  best  = { val: bal, s: s };
+    }
+    finals.sort(function (a, b) { return a - b; });
+    var med = finals[Math.floor(finals.length / 2)];
+    return {
+      count: finals.length, med: med, worst: worst, best: best,
+      lossPct: lost / finals.length * 100, beatPct: beat / finals.length * 100,
+      minS: minS, maxS: maxS, need: need,
+      winYrs: winYrs, divOn: divOn,
+    };
+  }
+  function drawBacktest(d) {
+    var grid = document.getElementById("btgrid"),
+        note = document.getElementById("btnote"),
+        since = document.getElementById("btsince");
+    var bt = backtest(d);
+    if (!bt || bt.err) {
+      grid.innerHTML = "";
+      note.textContent = bt ? bt.err : "回测数据未加载";
+      since.textContent = "";
+      return;
+    }
+    var key = idxKey(), prof = IDX[key], data = idxData(key);
+    var prin = d.pts[d.pts.length - 1].prin;
+    // 相对本金的盈亏比,如 "＋18%" / "−6%"
+    function pct(v) {
+      var d0 = prin > 0 ? v / prin - 1 : 0;
+      return (d0 >= 0 ? "＋" : "−") + Math.abs(d0 * 100).toFixed(0) + "%";
+    }
+    var tiles = [
+      ["中位数结局", yuan(bt.med), "一半窗口比这好；" + pct(bt.med), bt.med >= prin ? "up" : "down"],
+      ["最惨窗口", yuan(bt.worst.val), "起于 " + idxLabel(data.start, bt.worst.s) + "，" + pct(bt.worst.val), "down"],
+      ["最好窗口", yuan(bt.best.val), "起于 " + idxLabel(data.start, bt.best.s) + "，" + pct(bt.best.val), "up"],
+      ["亏损概率", bt.lossPct.toFixed(0) + "%", "共 " + bt.count + " 个起点，本金 " + yuan(prin), bt.lossPct > 0 ? "down" : "up"],
+      ["跑赢预期(" + (readVal("rate") - readVal("fee")).toFixed(1) + "%)", bt.beatPct.toFixed(0) + "%",
+        "对照固定利率投影 " + yuan(d.pts[d.pts.length - 1].val), ""],
+    ];
+    var h = "";
+    tiles.forEach(function (t) {
+      h += '<div class="dd-item"><div class="k">' + t[0] + '</div><div class="v ' + t[3] + '">' +
+           t[1] + '</div><div class="m">' + t[2] + "</div></div>";
+    });
+    grid.innerHTML = h;
+    note.textContent = "把左侧整套方案（本金、分段/递增、停投、费率）原样放进 " + data.start + " 以来的" + prof.full +
+      "（数据至 " + data.end +
+      (data.live ? "，本次打开页面时从东方财富实时获取" :
+        data.ext ? "，每日自动更新" + (data.updated ? "，最近更新 " + data.updated : "") : "，内置快照") + "），" +
+      (bt.winYrs ? "只取最近 " + bt.winYrs + " 年内开始" : "从任意月份") + "起投满 " + d.yrs +
+      " 年，滚动共 " + bt.count + " 个起点。分红" + (bt.divOn ? "按 " + (prof.yld * 100).toFixed(1) + "%/年 加回" : "未计") +
+      "（" + prof.name + "长期股息率约 " + (prof.yld * 100).toFixed(1) + "%）；价格为真值，误差主要来自分红估计与费率近似。";
+    since.textContent = key === "spx"
+      ? "提示：同一起点上标普500 的结局比纳指温和（波动小、回撤浅），代价是长期收益也低一截——来回切一下这两个选项，就是「波动换收益」的直观版本。"
+      : "提示：「最惨窗口」基本都是 1999–2001、2007、2021 这类山顶起投——同一起点差异比想象的大得多，定投的意义正是摊平它。";
+  }
+
+  /* ---------------- 视图切换 & 主题 ---------------- */
+  var bc = document.getElementById("v_chart"), bt = document.getElementById("v_table");
+  bc.addEventListener("click", function () {
+    document.getElementById("chartview").classList.remove("hidden");
+    document.getElementById("tableview").classList.add("hidden");
+    bc.setAttribute("aria-pressed", "true"); bt.setAttribute("aria-pressed", "false");
+    render();
+  });
+  bt.addEventListener("click", function () {
+    document.getElementById("tableview").classList.remove("hidden");
+    document.getElementById("chartview").classList.add("hidden");
+    bt.setAttribute("aria-pressed", "true"); bc.setAttribute("aria-pressed", "false");
+  });
+
+  // 默认不打 data-theme 标记，让「跟随系统」正常生效；
+  // 只有用户点了按钮才落一个显式标记（两个方向都要能压过系统设置）
+  var tb = document.getElementById("theme"), mq = window.matchMedia("(prefers-color-scheme: dark)");
+  function resolved() {
+    return document.documentElement.getAttribute("data-theme") || (mq.matches ? "dark" : "light");
+  }
+  function syncLabel() { tb.textContent = resolved() === "dark" ? "切换浅色" : "切换深色"; }
+  tb.addEventListener("click", function () {
+    document.documentElement.setAttribute("data-theme", resolved() === "dark" ? "light" : "dark");
+    syncLabel(); render();
+  });
+  mq.addEventListener("change", function () { syncLabel(); render(); });
+  syncLabel();
+
+  /* ---------------- 主循环 ---------------- */
+  function render() {
+    syncStopRange();
+    var d = compute();
+    stageChain.textContent = d.stDesc;
+    drawSummary(d);
+    drawStop(d);
+    drawDrawdown(d);
+    drawTable(d);
+    drawBacktest(d);
+    if (!document.getElementById("chartview").classList.contains("hidden")) drawChart(d);
+  }
+
+  // 只监听 window.resize 会漏掉几种情况：首次布局尚未定稿、滚动条出现导致卡片变窄、
+  // 字体加载完成后回流、卡片自身宽度变化——画布会停在过时的宽度上，多出的部分被裁掉。
+  // 直接盯住图表容器本身，宽度一变就重画。
+  function redrawIfVisible() {
+    if (!document.getElementById("chartview").classList.contains("hidden")) drawChart(compute());
+  }
+  if (window.ResizeObserver) {
+    var lastW = 0;
+    new ResizeObserver(function (es) {
+      var w = Math.round(es[0].contentRect.width);
+      if (w && w !== lastW) { lastW = w; redrawIfVisible(); }   // 只认宽度变化，避免自触发
+    }).observe(cbox);
+  } else {
+    window.addEventListener("resize", redrawIfVisible);
+  }
+  if (document.fonts && document.fonts.ready) document.fonts.ready.then(redrawIfVisible);
+
+  // 起始年月默认本月;再从 localStorage 恢复上次输入(存档里有就以存档为准)
+  (function () {
+    var now = new Date();
+    SIMPLE.start.value = now.getFullYear() + "-" + String(now.getMonth() + 1).padStart(2, "0");
+    loadState();
+    // 滑块与数字框对齐(存档值可能超滑块量程)
+    FIELDS.forEach(function (k) {
+      var v = readVal(k);
+      el[k].r.value = Math.min(parseFloat(el[k].r.max), Math.max(parseFloat(el[k].r.min), v));
+    });
+    render();
+  })();
+
+  // 实时数据层最后启动:首屏先按静态/内嵌渲染,拉到了再覆盖重绘,绝不挡首屏
+  try { initLive(); } catch (e) { /* 实时层挂了不影响其余 */ }
+})();
+</script>
+</body>
+</html>

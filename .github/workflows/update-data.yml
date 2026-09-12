@@ -1,0 +1,43 @@
+name: Update index data
+
+on:
+  schedule:
+    # 每天 UTC 23:00 = 北京时间次日 07:00
+    # 美股月末收盘在北京时间凌晨 4~5 点，07:00 跑正好能拿到上月数据
+    - cron: '0 23 * * *'
+  workflow_dispatch:        # 允许在 Actions 页面手动点按钮触发，方便调试
+
+permissions:
+  contents: write           # 允许 push（必须，否则提交会被拒）
+
+concurrency:
+  group: update-index-data
+  cancel-in-progress: false
+
+jobs:
+  update:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Fetch & generate js
+        env:
+          # 这些 key 都是可选的，没配的话脚本会自动降级到免费源
+          NDX_FRED_KEY: ${{ secrets.NDX_FRED_KEY }}
+          NDX_12D9_KEY: ${{ secrets.NDX_12D9_KEY }}
+          NDX_AV_KEY:   ${{ secrets.NDX_AV_KEY }}
+          NDX_TI_KEY:   ${{ secrets.NDX_TI_KEY }}
+        run: bash update_ndx.sh
+
+      - name: Commit if changed
+        run: |
+          git config user.name  "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          if git diff --quiet -- ndx-data.js spx-data.js; then
+            echo "数据没变化，跳过提交"
+            exit 0
+          fi
+          git add ndx-data.js spx-data.js
+          git commit -m "chore(data): $(date -u +%F) 自动更新指数月线"
+          git push
