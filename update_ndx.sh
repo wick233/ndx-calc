@@ -355,6 +355,21 @@ gen_one() {
 #   adjusted = 复权收盘价,分红再投资
 # 源函数往 $RAW 写三列「日期 收盘 复权」。
 
+# Tiingo:要免费 key(NDX_TI_KEY),对机房 IP 不限流,GitHub Actions 上靠它。
+# 日线 JSON,每条有 close(原始价,没做拆股调整——qqq_months 会处理) 和 adjClose。
+q_tiingo() {
+  [[ -n "${NDX_TI_KEY:-}" ]] || return 1
+  cf "https://api.tiingo.com/tiingo/daily/QQQ/prices?startDate=1999-03-01&token=$NDX_TI_KEY" -o "$TMPD/tq" || return 1
+  tr '{' '\n' < "$TMPD/tq" | awk '
+    function val(k,   i, s) {
+      i = index($0, "\"" k "\":"); if (!i) return ""
+      s = substr($0, i + length(k) + 3); sub(/[,}].*/, "", s); gsub(/"/, "", s); return s
+    }
+    { d = substr(val("date"), 1, 10); c = val("close"); a = val("adjClose")
+      if (d ~ /^[0-9]/ && c + 0 > 0 && a + 0 > 0) print d, c, a }' > "$RAW"
+  [[ -s "$RAW" ]]
+}
+
 q_yahoo() {   # $1=域名;日线(月线接口的复权价口径没验证过)。close 已做拆股调整
   cf "https://$1/v8/finance/chart/QQQ?period1=920937600&period2=$(date +%s)&interval=1d" -o "$TMPD/yq" || return 1
   grep -q '"symbol":"QQQ"' "$TMPD/yq" || return 1
@@ -387,18 +402,27 @@ qqq_months() {
       # 页面按 start + 下标推月份,中间缺一个月后面就全错位
       for (i = 2; i <= n; i++) if (ym(ms[i]) != ym(ms[i - 1]) + 1) fail(ms[i - 1] " 之后缺月")
 
+      # closes 要的是「只做拆股调整」的收盘价。有的源给原始价(拆股那个月价格腰斩):
+      # 平时照抄收盘价的涨跌;哪个月收盘价和复权价的涨跌差出三成(分红造不成这么大的差),
+      # 那就是拆股,该月改用复权价的涨跌。源本来就调整过的话,这一步什么都不改。
+      p[n] = c[ms[n]]
+      for (i = n - 1; i >= 1; i--) {
+        rc = c[ms[i]] / c[ms[i + 1]]; ra = a[ms[i]] / a[ms[i + 1]]
+        p[i] = p[i + 1] * ((rc / ra > 1.3 || rc / ra < 0.77) ? ra : rc)
+      }
+
       # 复权价 = 收盘价 ÷ 一个随每次分红变大的系数,所以「收盘 ÷ 复权」从上市起只降不升,
       # 最后落在 1 附近。没算分红的线(全程是 1)、按金额加减的复权(忽高忽低)都过不了。
-      lo = c[ms[1]] / a[ms[1]]
+      lo = p[1] / a[ms[1]]
       if (lo < 1.05) fail("复权价没有算进分红")
       for (i = 2; i <= n; i++) {
-        g = c[ms[i]] / a[ms[i]]
+        g = p[i] / a[ms[i]]
         if (g > lo * 1.003) fail("复权口径不对(" ms[i] ")")
         if (g < lo) lo = g
       }
       if (lo < 0.99 || g > 1.01) fail("末月收盘价与复权价对不上")
 
-      for (i = 1; i <= n; i++) printf "%s %.4f %.4f\n", ms[i], c[ms[i]], a[ms[i]]
+      for (i = 1; i <= n; i++) printf "%s %.4f %.4f\n", ms[i], p[i], a[ms[i]]
     }'
 }
 
@@ -415,6 +439,7 @@ gen_qqq() {   # $1=输出文件
     elif sort "$RAW" | qqq_months > "$d/months"; then SRC="$1"; log "  数据源: $1 ($(wc -l < "$RAW") 条)"
     else log "  源失败: $1 —— $(head -1 "$d/months")"; fi
   }
+  qtry "tiingo" q_tiingo
   qtry "yahoo1" q_yahoo query1.finance.yahoo.com
   qtry "yahoo2" q_yahoo query2.finance.yahoo.com
   [[ -n "$SRC" ]] || { warn "[FAIL] QQQ 所有数据源都拉不到"; return 1; }
@@ -503,6 +528,7 @@ probe() {
   done
   echo "======== QQQ ========"
   RAW="$TMPD/pb_qqq"
+  probe_qqq "tiingo" q_tiingo
   probe_qqq "yahoo1" q_yahoo query1.finance.yahoo.com
   probe_qqq "yahoo2" q_yahoo query2.finance.yahoo.com
 }

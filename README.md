@@ -170,7 +170,7 @@ jobs:
      → TwelveData → AlphaVantage → Tiingo → FRED Graph
 ```
 
-上面是两个指数的顺序。QQQ 是基金，要同时拿到「收盘价」和「复权价」两条线，源单独一套：`Yahoo query1 → Yahoo query2`，不需要 key；拉到之后还要过一遍校验（从 1999-03 起月份连续、复权价确实算进了分红）才会写文件。
+上面是两个指数的顺序。QQQ 是基金，要同时拿到「收盘价」和「复权价」两条线，源单独一套：`Tiingo（需 NDX_TI_KEY）→ Yahoo query1 → Yahoo query2`。Yahoo 不要 key，但对 GitHub 机房 IP 返回 429，所以在 Actions 上要靠 Tiingo；拉到之后还要过一遍校验（从 1999-03 起月份连续、复权价确实算进了分红）才会写文件。
 
 **前几个免费源大概率能通，可以先不配任何 key 跑一次。** 全失败了再配：
 
