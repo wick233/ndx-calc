@@ -282,6 +282,15 @@
     </div>
     <p class="note" id="netnote"></p>
 
+    <!-- 目标反推：给定期末目标，算每月要投多少（逻辑见 drawGoal） -->
+    <div class="optrow">
+      <label for="n_goal">目标反推：期末想要</label>
+      <input type="number" id="n_goal" min="0" step="10" placeholder="如 200">
+      <span class="unit">万元</span>
+      <span id="goalout"></span>
+      <button class="btn hidden" id="b_goal" type="button">填入「每月定投」</button>
+    </div>
+
     <!-- 分段定投：某年起改每月投入额（金额填 0 = 该年起停投） -->
     <div class="stages">
       <div class="stage-head">
@@ -466,6 +475,7 @@
     growth: document.getElementById("n_growth"),
     growthOn: document.getElementById("k_growth"),
     save: document.getElementById("k_save"),
+    goal: document.getElementById("n_goal"),
     btidx: document.getElementById("s_btidx"),
     btwin: document.getElementById("s_btwin"),
     btdiv: document.getElementById("s_btdiv"),
@@ -627,8 +637,8 @@
     renderStageRows(); render(); saveState();
   });
 
-  function compute() {
-    var lump = readVal("lump"), mon = readVal("mon"),
+  function compute(monOv) {   // monOv:临时换一个「每月定投」来试算(目标反推用),不传就读输入框
+    var lump = readVal("lump"), mon = monOv != null ? monOv : readVal("mon"),
         yrs  = Math.round(readVal("yrs")),
         stop0 = Math.round(readVal("stop")),      // 0 = 一直投到最后
         spend = readVal("spend"),                 // 停投后每月支出
@@ -1059,6 +1069,35 @@
       "参考：" + IDX[idxKey()].rateNote;
   }
 
+  /* ---------------- 目标反推 ---------------- */
+  // 期末市值对「每月定投」是线性的(分段、递增、停投都不改变这一点),
+  // 所以试算两个点就能直接解出需要的金额,不用迭代。
+  var goalMon = null, goalOut = document.getElementById("goalout"), goalBtn = document.getElementById("b_goal");
+  function drawGoal(d) {
+    var goal = parseFloat(SIMPLE.goal.value) * 1e4;
+    goalMon = null;
+    if (goal > 0) {
+      var end = function (m) { var p = compute(m).pts; return p[p.length - 1].val; };
+      var v0 = end(0), slope = (end(1000) - v0) / 1000;
+      if (v0 >= goal) goalOut.textContent = "→ 现有本金（加分段投入）已经够，不用再每月定投";
+      else if (!(slope > 0)) goalOut.textContent = "→ 分段定投已覆盖全部年份，「每月定投」不起作用，请改分段金额";
+      else {
+        goalMon = Math.ceil((goal - v0) / slope);
+        goalOut.textContent = "→ 每月需投 " + goalMon.toLocaleString("zh-CN") + " 元（按净年化 " +
+          (d.net * 100).toFixed(1) + "%、" + d.yrs + " 年" +
+          (d.growthOn ? "，此为第 1 年金额，之后逐年 +" + (d.growth * 100).toFixed(1) + "%" : "") +
+          (d.stop > 0 && d.stop < d.yrs ? "，第 " + d.stop + " 年停投" : "") + "）";
+      }
+    } else goalOut.textContent = "—— 填个目标，算出每月要投多少";
+    goalBtn.classList.toggle("hidden", goalMon == null);
+  }
+  goalBtn.addEventListener("click", function () {
+    if (goalMon == null) return;
+    el.mon.n.value = Math.min(goalMon, parseFloat(el.mon.n.max));
+    el.mon.r.value = Math.min(parseFloat(el.mon.r.max), readVal("mon"));
+    render(); saveState();
+  });
+
   /* ---------------- 历史回测 ---------------- */
   // 数据三层优先级:浏览器实时(JSONP,东财月K,访问者网络决定成败)
   //   > 同目录静态文件(cron 生成,window.NDX_DATA/SPX_DATA) > 页面内嵌快照。
@@ -1256,12 +1295,19 @@
         spend = d.spend;
     var finals = [], lost = 0, beat = 0, worst = null, best = null;
     var flatFinal = d.pts[d.pts.length - 1].val;     // 同方案的固定利率投影
+    // 途中最大浮亏:每个窗口里「市值 ÷ 已投入本金 − 1」的最低点。
+    // 开始取钱之后市值本来就该低于本金,那段不算。
+    var inv = [], acc = d.lump, dips = [], deep = null;
+    for (var k = 0; k < need; k++) { acc += d.payAt(k); inv.push(acc); }
     for (var s = minS; s <= maxS; s++) {
-      var bal = d.lump, mi = 0;
+      var bal = d.lump, mi = 0, dip = 0;
       for (; mi < need; mi++) {
         bal = bal * (1 + rets[s + mi]) + d.payAt(mi);
         if (d.stop > 0 && mi >= stopM && spend > 0) bal = Math.max(0, bal - spend);
+        else if (inv[mi] > 0 && bal / inv[mi] - 1 < dip) dip = bal / inv[mi] - 1;
       }
+      dips.push(dip);
+      if (!deep || dip < deep.v) deep = { v: dip, s: s };
       var prin = d.pts[d.pts.length - 1].prin;       // 投入与行情无关,固定
       finals.push(bal);
       if (bal < prin) lost++;
@@ -1272,7 +1318,9 @@
     finals.sort(function (a, b) { return a - b; });
     var mid = Math.floor(finals.length / 2);
     var med = finals.length % 2 ? finals[mid] : (finals[mid - 1] + finals[mid]) / 2;
+    dips.sort(function (a, b) { return a - b; });
     return {
+      dipWorst: deep, dipMed: dips.length % 2 ? dips[mid] : (dips[mid - 1] + dips[mid]) / 2,
       count: finals.length, med: med, worst: worst, best: best,
       lossPct: lost / finals.length * 100, beatPct: beat / finals.length * 100,
       minS: minS, maxS: maxS, need: need,
@@ -1302,6 +1350,9 @@
       ["最惨窗口", yuan(bt.worst.val), "起于 " + idxLabel(data.start, bt.worst.s) + "，" + pct(bt.worst.val), "down"],
       ["最好窗口", yuan(bt.best.val), "起于 " + idxLabel(data.start, bt.best.s) + "，" + pct(bt.best.val), "up"],
       ["亏损概率", bt.lossPct.toFixed(0) + "%", "共 " + bt.count + " 个起点，本金 " + yuan(prin), bt.lossPct > 0 ? "down" : "up"],
+      ["途中最大浮亏", bt.dipWorst.v < 0 ? "−" + (-bt.dipWorst.v * 100).toFixed(0) + "%" : "未跌破本金",
+        bt.dipWorst.v < 0 ? "起于 " + idxLabel(data.start, bt.dipWorst.s) + "；半数窗口至少亏过 " +
+          (-bt.dipMed * 100).toFixed(0) + "%" : "所有窗口市值始终高于已投本金", bt.dipWorst.v < 0 ? "down" : "up"],
       ["跑赢预期(" + (readVal("rate") - readVal("fee")).toFixed(1) + "%)", bt.beatPct.toFixed(0) + "%",
         "对照固定利率投影 " + yuan(d.pts[d.pts.length - 1].val), ""],
     ];
@@ -1321,6 +1372,8 @@
         ? (bt.divOn ? "使用含分红再投资的复权收盘价。" : "使用拆股调整收盘价，不含分红。")
         : "分红" + (bt.divOn ? "按 " + (prof.yld * 100).toFixed(1) + "%/年 加回" : "未计") +
           "（" + prof.name + "长期股息率约 " + (prof.yld * 100).toFixed(1) + "%）；价格为真值，误差主要来自分红估计与费率近似。");
+    note.textContent += "「途中最大浮亏」是持有期间账户市值相对已投入本金的最低点" +
+      (d.stop > 0 && d.spend > 0 ? "（只算开始取钱之前）" : "") + "——期末赚钱的窗口，中途也可能深度被套。";
     since.textContent = key === "spx"
       ? "提示：同一起点上标普500 的结局比纳指温和（波动小、回撤浅），代价是长期收益也低一截——来回切一下这两个选项，就是「波动换收益」的直观版本。"
       : "提示：「最惨窗口」基本都是 1999–2001、2007、2021 这类山顶起投——同一起点差异比想象的大得多，定投的意义正是摊平它。";
@@ -1361,6 +1414,7 @@
     var d = compute();
     stageChain.textContent = d.stDesc;
     drawSummary(d);
+    drawGoal(d);
     drawStop(d);
     drawDrawdown(d);
     drawTable(d);

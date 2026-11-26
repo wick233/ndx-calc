@@ -66,8 +66,10 @@ cfr() { cf -e "https://quote.eastmoney.com/" "$@"; }
 KINDS="ndx spx"
 declare -A ANAME=(   [ndx]="纳指100"     [spx]="标普500" )
 declare -A EMSEARCH=( [ndx]="纳斯达克100" [spx]="标普500" )  # 东财搜索词(仅 --probe 用)
-declare -A EMNAME=(  [ndx]="纳斯达克"    [spx]="标普" )     # 返回名称须含此串
-declare -A EMBAK=(   [ndx]="100.NDX 106.IXIC 100.NDXI" [spx]="100.SPX 100.INX" )
+# 纳指的名称必须带「100」:东财 100.NDX 是纳斯达克综合指数,只查「纳斯达克」会把它当纳指100 收下。
+# 东财没有通过校验的 secid 也没关系,后面还有 FRED / 腾讯(usNDX) 等源。
+declare -A EMNAME=(  [ndx]="纳斯达克100" [spx]="标普" )     # 返回名称须含此串
+declare -A EMBAK=(   [ndx]="100.NDX100 100.NDX" [spx]="100.SPX 100.INX" )
 declare -A FRED=(    [ndx]="NASDAQ100"   [spx]="SP500" )
 declare -A FREDFULL=([ndx]=1            [spx]=0 )           # 该指数 FRED 是否给全历史
 declare -A STQ=(     [ndx]="%5Endx"      [spx]="%5Espx" )
@@ -300,6 +302,8 @@ gen_one() {
     [[ -n "$SRC" ]] && return 0
     if "${@:2}"; then SRC="$1"; log "  数据源: $1 ($(wc -l < "$RAW") 条)"; else log "  源失败: $1"; fi
   }
+  # 标普先试腾讯:它回到 1960 年,东财只到 1986 年;腾讯不通再按下面的顺序降级
+  if [[ "$kind" == spx ]]; then try "tencent" f_tencent "$kind"; fi
   try "eastmoney"    f_em "$kind"
   try "fred-api"     f_fred_api "$kind"
   try "tencent"      f_tencent "$kind"
