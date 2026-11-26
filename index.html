@@ -306,7 +306,8 @@
     <div class="optrow" style="margin-top:16px; padding-top:12px; border-top:1px solid var(--gridline)">
       <input type="checkbox" id="k_save" checked>
       <label for="k_save">记住这次输入（保存在本浏览器，下次打开自动恢复）</label>
-      <button class="btn" id="b_reset" type="button" style="margin-left:auto">清空恢复默认</button>
+      <button class="btn" id="b_share" type="button" style="margin-left:auto">复制分享链接</button>
+      <button class="btn" id="b_reset" type="button">清空恢复默认</button>
     </div>
   </div>
 
@@ -419,6 +420,24 @@
     </div>
     <p class="bt-note" id="btnote"></p>
     <div class="dd" id="btgrid"></div>
+
+    <!-- 三个代表性窗口的账户曲线（逻辑见 drawBtChart） -->
+    <div id="btchart">
+      <div class="chart-box" id="btbox">
+        <div class="chart-scroll"><svg id="btsvg" role="img" aria-label="最好、中位、最惨三个历史窗口的账户市值曲线"></svg></div>
+        <div class="tip" id="bttip"></div>
+      </div>
+      <div class="legend">
+        <span><span class="swatch" style="width:14px;height:2px;border-radius:1px;background:var(--series-2)"></span>历史窗口的账户市值（最好 / 中位 / 最惨，见线尾标注）</span>
+        <span><span class="swatch" style="width:14px;height:2px;border-radius:1px;background:var(--series-1)"></span>累计投入本金</span>
+        <span><span class="swatch" style="width:14px;height:0;border-top:2px dashed var(--text-muted);background:none"></span>固定利率投影</span>
+      </div>
+    </div>
+
+    <!-- 同一套方案放进三个标的（逻辑见 drawCmp） -->
+    <h3 style="font-size:13px;font-weight:600;margin:22px 0 0">三个标的并排对比</h3>
+    <div id="btcmp" style="overflow-x:auto"></div>
+    <p class="bt-note" id="btcmpnote"></p>
     <p class="bt-note" id="btsince"></p>
   </div>
 
@@ -518,9 +537,23 @@
     if (!SIMPLE.save.checked) return;
     try { localStorage.setItem(SKEY, JSON.stringify(getState())); } catch (e) { /* 无痕模式等,静默 */ }
   }
+  // 分享链接:整套参数放在网址 # 后面(不经过服务器)。带参数打开时以链接为准,
+  // 但不会覆盖对方浏览器里的存档——对方自己改了输入才会存。
+  function shareRaw() {
+    var m = /^#s=(.+)/.exec(location.hash);
+    if (!m) return null;
+    try { return decodeURIComponent(m[1]); } catch (e) { return null; }
+  }
+  document.getElementById("b_share").addEventListener("click", function () {
+    var btn = this, url = location.origin + location.pathname + "#s=" + encodeURIComponent(JSON.stringify(getState()));
+    function done() { btn.textContent = "已复制"; setTimeout(function () { btn.textContent = "复制分享链接"; }, 1500); }
+    if (navigator.clipboard && navigator.clipboard.writeText)
+      navigator.clipboard.writeText(url).then(done, function () { window.prompt("复制这个链接：", url); });
+    else window.prompt("复制这个链接：", url);
+  });
   function loadState() {
-    var raw;
-    try { raw = localStorage.getItem(SKEY); } catch (e) { return; }
+    var raw = shareRaw();
+    if (!raw) { try { raw = localStorage.getItem(SKEY); } catch (e) { return; } }
     if (!raw) return;
     try {
       var s = JSON.parse(raw);
@@ -545,6 +578,7 @@
   }
   document.getElementById("b_reset").addEventListener("click", function () {
     try { localStorage.removeItem(SKEY); } catch (e) {}
+    try { history.replaceState(null, "", location.pathname); } catch (e) {}   // 去掉分享参数,否则刷新又恢复回来
     location.reload();
   });
 
@@ -1278,8 +1312,9 @@
     var p = startYM.split("-"), abs = (+p[0]) * 12 + (+p[1] - 1) + idx;
     return Math.floor(abs / 12) + "-" + String(abs % 12 + 1).padStart(2, "0");
   }
-  function backtest(d) {
-    var key = idxKey(), prof = IDX[key], data = idxData(key);
+  function backtest(d, key) {   // key 不传 = 当前选中的标的
+    key = key || idxKey();
+    var prof = IDX[key], data = idxData(key);
     if (!data) return { err: prof.name + " 数据未加载——请在同目录放 " + prof.extFile +
       "（由 update_ndx.sh 生成），或改用纳斯达克100" };
     var need = d.yrs * 12, closes = data.closes;
@@ -1300,7 +1335,7 @@
     var flatFinal = d.pts[d.pts.length - 1].val;     // 同方案的固定利率投影
     // 途中最大浮亏:每个窗口里「市值 ÷ 已投入本金 − 1」的最低点。
     // 开始取钱之后市值本来就该低于本金,那段不算。
-    var inv = [], acc = d.lump, dips = [], deep = null;
+    var inv = [], acc = d.lump, dips = [], deep = null, ends = [];
     for (var k = 0; k < need; k++) { acc += d.payAt(k); inv.push(acc); }
     for (var s = minS; s <= maxS; s++) {
       var bal = d.lump, mi = 0, dip = 0;
@@ -1312,7 +1347,7 @@
       dips.push(dip);
       if (!deep || dip < deep.v) deep = { v: dip, s: s };
       var prin = d.pts[d.pts.length - 1].prin;       // 投入与行情无关,固定
-      finals.push(bal);
+      finals.push(bal); ends.push({ v: bal, s: s });
       if (bal < prin) lost++;
       if (bal > flatFinal) beat++;
       if (!worst || bal < worst.val) worst = { val: bal, s: s };
@@ -1322,7 +1357,9 @@
     var mid = Math.floor(finals.length / 2);
     var med = finals.length % 2 ? finals[mid] : (finals[mid - 1] + finals[mid]) / 2;
     dips.sort(function (a, b) { return a - b; });
+    ends.sort(function (a, b) { return a.v - b.v; });
     return {
+      rets: rets, inv: inv, medS: ends[mid].s,     // 画曲线用:月收益、逐月累计本金、中位窗口的起点
       dipWorst: deep, dipMed: dips.length % 2 ? dips[mid] : (dips[mid - 1] + dips[mid]) / 2,
       count: finals.length, med: med, worst: worst, best: best,
       lossPct: lost / finals.length * 100, beatPct: beat / finals.length * 100,
@@ -1330,11 +1367,122 @@
       winYrs: winYrs, divOn: divOn,
     };
   }
+  /* ---- 三个标的并排对比 ---- */
+  function drawCmp(d, cur, curBt) {
+    var prin = d.pts[d.pts.length - 1].prin;
+    var pc = function (v) { return (v >= 0 ? "＋" : "−") + Math.abs(v * 100).toFixed(0) + "%"; };
+    var h = "<table><thead><tr><th>标的</th><th>数据起点</th><th>起点数</th><th>中位数结局</th><th>最惨</th><th>最好</th><th>亏损概率</th><th>途中最大浮亏</th></tr></thead><tbody>";
+    Object.keys(IDX).forEach(function (k) {
+      var r = k === cur ? curBt : backtest(d, k), data = idxData(k);
+      h += "<tr" + (k === cur ? ' style="font-weight:600"' : "") + "><td>" + IDX[k].name + "</td>";
+      if (!r || r.err) { h += '<td colspan="7" style="text-align:left;font-family:var(--font-ui)">' + (data ? "历史不够长，凑不出完整窗口" : "数据未加载") + "</td></tr>"; return; }
+      var rel = function (v) { return yuan(v) + "（" + pc(prin > 0 ? v / prin - 1 : 0) + "）"; };
+      h += "<td>" + data.start + "</td><td>" + r.count + "</td><td>" + rel(r.med) + "</td><td>" + rel(r.worst.val) +
+           "</td><td>" + rel(r.best.val) + "</td><td>" + r.lossPct.toFixed(0) + "%</td><td>" +
+           (r.dipWorst.v < 0 ? pc(r.dipWorst.v) : "未跌破") + "</td></tr>";
+    });
+    document.getElementById("btcmp").innerHTML = h + "</tbody></table>";
+    document.getElementById("btcmpnote").textContent =
+      "同一套方案、同样的回测窗口和分红选项。括号里是相对本金的盈亏。各标的数据起点不同（QQQ 1999 年才上市），选「全部历史」时覆盖的年代不一样，选「最近 N 年」才是同期对比。";
+  }
+
+  /* ---- 回测曲线:最好 / 中位 / 最惨三个窗口的账户走势 ---- */
+  var btSvg = document.getElementById("btsvg"), btBox = document.getElementById("btbox"),
+      btTip = document.getElementById("bttip");
+  function btPath(d, rets, s) {   // 起点 s 的窗口逐月市值,算法同 backtest 的内层循环
+    var bal = d.lump, out = [bal], stopM = d.stop > 0 ? d.stop * 12 : Infinity;
+    for (var mi = 0; mi < d.yrs * 12; mi++) {
+      bal = bal * (1 + rets[s + mi]) + d.payAt(mi);
+      if (d.stop > 0 && mi >= stopM && d.spend > 0) bal = Math.max(0, bal - d.spend);
+      out.push(bal);
+    }
+    return out;
+  }
+  function drawBtChart(d, bt, data) {
+    while (btSvg.firstChild) btSvg.removeChild(btSvg.firstChild);
+    var need = bt.need, top = 0;
+    // 三条线同一个颜色,靠线尾文字区分;中位线加粗
+    var lines = [{ nm: "最好", s: bt.best.s }, { nm: "中位", s: bt.medS }, { nm: "最惨", s: bt.worst.s }];
+    lines.forEach(function (l) {
+      l.p = btPath(d, bt.rets, l.s); l.from = idxLabel(data.start, l.s);
+      l.p.forEach(function (v) { if (v > top) top = v; });
+    });
+    var prin = [d.lump].concat(bt.inv), flat = d.pts.map(function (p) { return p.val; });
+    top = Math.max(top, prin[need], flat[flat.length - 1]);
+
+    var W = Math.max(260, btBox.clientWidth || 700), M = { t: 16, r: 104, b: 34, l: 60 },
+        ih = 260, iw = W - M.l - M.r, H = ih + M.t + M.b;
+    btSvg.setAttribute("viewBox", "0 0 " + W + " " + H);
+    btSvg.setAttribute("width", W); btSvg.setAttribute("height", H);
+    var ticks = niceTicks(top || 1), ymax = ticks[ticks.length - 1] || 1;
+    var X = function (m) { return M.l + m / need * iw; };
+    var Y = function (v) { return M.t + ih - (v / ymax) * ih; };
+
+    ticks.forEach(function (t) {
+      btSvg.appendChild(mk("line", { x1: M.l, x2: M.l + iw, y1: Y(t), y2: Y(t), stroke: "var(--gridline)", "stroke-width": 1 }));
+      var lb = mk("text", { x: M.l - 9, y: Y(t) + 4, "text-anchor": "end", fill: "var(--text-muted)", "font-size": 11 });
+      lb.textContent = axisFmt(t); btSvg.appendChild(lb);
+    });
+    var stepX = Math.max(1, Math.ceil(d.yrs / Math.max(3, Math.floor(iw / 46))));
+    for (var y = 0; y <= d.yrs; y += stepX) {
+      var xt = mk("text", { x: X(y * 12), y: M.t + ih + 19, "text-anchor": "middle", fill: "var(--text-muted)", "font-size": 11 });
+      xt.textContent = y + "年"; btSvg.appendChild(xt);
+    }
+    btSvg.appendChild(mk("line", { x1: M.l, x2: M.l + iw, y1: Y(0), y2: Y(0), stroke: "var(--baseline)", "stroke-width": 1 }));
+
+    function P(arr, step) {
+      return arr.map(function (v, i) { return (i ? "L" : "M") + X(i * step).toFixed(1) + " " + Y(v).toFixed(1); }).join(" ");
+    }
+    btSvg.appendChild(mk("path", { d: P(flat, 12), fill: "none", stroke: "var(--text-muted)", "stroke-width": 1.5, "stroke-dasharray": "4 4" }));
+    btSvg.appendChild(mk("path", { d: P(prin, 1), fill: "none", stroke: "var(--series-1)", "stroke-width": 1.5 }));
+    lines.forEach(function (l) {
+      btSvg.appendChild(mk("path", { d: P(l.p, 1), fill: "none", stroke: "var(--series-2)",
+        "stroke-width": l.nm === "中位" ? 2.5 : 1.5, "stroke-linejoin": "round" }));
+    });
+
+    // 线尾标注:按位置排好,挤在一起就往下推开
+    var labs = lines.map(function (l) { return { y: Y(l.p[need]), ly: Y(l.p[need]) + 4, txt: l.nm + " " + yuan(l.p[need]) }; })
+      .sort(function (a, b) { return a.y - b.y; });
+    labs.forEach(function (a, i) {
+      if (i && a.ly - labs[i - 1].ly < 14) a.ly = labs[i - 1].ly + 14;
+      btSvg.appendChild(mk("circle", { cx: X(need), cy: a.y, r: 4, fill: "var(--series-2)", stroke: "var(--surface-1)", "stroke-width": 2 }));
+      var t = mk("text", { x: X(need) + 9, y: a.ly, fill: "var(--text-secondary)", "font-size": 11 });
+      t.textContent = a.txt; btSvg.appendChild(t);
+    });
+
+    // 悬停:整块绘图区都是命中区,竖线 + 浮层给出该月各条线的数值
+    var cross = mk("line", { y1: M.t, y2: M.t + ih, stroke: "var(--baseline)", "stroke-width": 1, opacity: 0 });
+    var rect = mk("rect", { x: M.l, y: M.t, width: iw, height: ih, fill: "transparent" });
+    btSvg.appendChild(cross); btSvg.appendChild(rect);
+    function show(cx) {
+      var m = Math.max(0, Math.min(need, Math.round((cx - btSvg.getBoundingClientRect().left - M.l) / iw * need)));
+      cross.setAttribute("x1", X(m)); cross.setAttribute("x2", X(m)); cross.setAttribute("opacity", 1);
+      var row = function (color, name, v) {
+        return '<div class="r"><span class="lb"><span class="swatch" style="background:' + color + '"></span>' + name +
+               "</span><b>" + yuan(v) + "</b></div>";
+      };
+      var h = '<div class="t">第 ' + Math.floor(m / 12) + " 年 " + (m % 12) + " 个月</div>";
+      lines.forEach(function (l) { h += row("var(--series-2)", l.nm + "（起于 " + l.from + "）", l.p[m]); });
+      btTip.innerHTML = h + '<div class="hr"></div>' + row("var(--series-1)", "累计投入本金", prin[m]);
+      btTip.classList.add("on");
+      var left = X(m) + 12;
+      if (left + btTip.offsetWidth > W) left = Math.max(0, X(m) - 12 - btTip.offsetWidth);
+      btTip.style.left = left + "px"; btTip.style.top = M.t + "px";
+    }
+    function hide() { cross.setAttribute("opacity", 0); btTip.classList.remove("on"); }
+    rect.addEventListener("mousemove", function (e) { show(e.clientX); });
+    rect.addEventListener("mouseleave", hide);
+    rect.addEventListener("touchmove", function (e) { if (e.touches[0]) show(e.touches[0].clientX); }, { passive: true });
+    rect.addEventListener("touchend", hide);
+  }
+
   function drawBacktest(d) {
     var grid = document.getElementById("btgrid"),
         note = document.getElementById("btnote"),
         since = document.getElementById("btsince");
     var bt = backtest(d);
+    drawCmp(d, idxKey(), bt);
+    document.getElementById("btchart").classList.toggle("hidden", !bt || !!bt.err);
     if (!bt || bt.err) {
       grid.innerHTML = "";
       note.textContent = bt ? bt.err : "回测数据未加载";
@@ -1365,6 +1513,7 @@
            t[1] + '</div><div class="m">' + t[2] + "</div></div>";
     });
     grid.innerHTML = h;
+    drawBtChart(d, bt, data);
     note.textContent = "把左侧整套方案（本金、分段/递增、停投、费率）原样放进 " + data.start + " 以来的" + prof.full +
       "（数据至 " + data.end +
       (key === "qqq" ? "，数据更新于 " + data.updated :
@@ -1429,7 +1578,9 @@
   // 字体加载完成后回流、卡片自身宽度变化——画布会停在过时的宽度上，多出的部分被裁掉。
   // 直接盯住图表容器本身，宽度一变就重画。
   function redrawIfVisible() {
-    if (!document.getElementById("chartview").classList.contains("hidden")) drawChart(compute());
+    var d = compute();
+    if (!document.getElementById("chartview").classList.contains("hidden")) drawChart(d);
+    drawBacktest(d);      // 回测曲线的宽度也跟着卡片走
   }
   if (window.ResizeObserver) {
     var lastW = 0;

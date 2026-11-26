@@ -4,7 +4,7 @@ const test = require('node:test');
 const vm = require('node:vm');
 
 const html = fs.readFileSync(new URL('../index.html', `file://${__filename}`), 'utf8');
-const source = html.slice(html.indexOf('  function backtest(d)'), html.indexOf('  function drawBacktest(d)'));
+const source = html.slice(html.indexOf('  function backtest(d'), html.indexOf('  /* ---- 三个标的并排对比'));
 
 function run(closes) {
   const backtest = vm.runInNewContext(source + '\nbacktest', {
