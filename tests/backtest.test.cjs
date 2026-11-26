@@ -11,7 +11,7 @@ function run(closes) {
     idxKey: () => 'qqq', IDX: { qqq: { name: 'QQQ' } },
     idxData: () => ({ start: '2000-01', end: '2001-02', closes }),
     idxLabel: () => '2001-02', readVal: () => 0,
-    SIMPLE: { btdiv: { value: '0' }, btwin: { value: '0' } },
+    SIMPLE: { btdiv: { value: '0' }, btwin: { value: '0' }, btfx: { value: '0' } },
   });
   return backtest({ yrs: 1, lump: 100, payAt: () => 0, pts: [{ val: 100, prin: 100 }] });
 }

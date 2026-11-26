@@ -1,11 +1,11 @@
 #!/usr/bin/env bash
 #
-# 拉取 纳指100 + 标普500 月末收盘、QQQ 月末价,生成 ndx-data.js / spx-data.js / qqq-data.js
-# (供 qd.html 历史回测用)。
+# 拉取 纳指100 + 标普500 月末收盘、QQQ 月末价、美元兑人民币月末汇率,
+# 生成 ndx-data.js / spx-data.js / qqq-data.js / fx-data.js(供 qd.html 历史回测用)。
 #
 #   bash update_ndx.sh               正常更新
 #   bash update_ndx.sh --probe       自检:东财 secid 候选 + 各源可用性,逐个打印
-#   bash update_ndx.sh [输出路径]     指定 ndx 输出(默认脚本同目录;spx / qqq 落在同目录)
+#   bash update_ndx.sh [输出路径]     指定 ndx 输出(默认脚本同目录;其余几个落在同目录)
 #
 # 数据源顺序(每指数独立降级,某指数全失败只保留它的旧文件):
 #   东财 push2his(多节点重试) -> FRED REST -> Shiller 学术数据集 -> stooq -> 雅虎
@@ -47,6 +47,7 @@ OUT_NDX="${OUT_NDX:-$SCRIPT_DIR/ndx-data.js}"
 OUT_DIR="$(cd "$(dirname "$OUT_NDX")" 2>/dev/null && pwd || dirname "$OUT_NDX")"
 OUT_SPX="$OUT_DIR/spx-data.js"
 OUT_QQQ="$OUT_DIR/qqq-data.js"
+OUT_FX="$OUT_DIR/fx-data.js"
 thismonth="$(date +%Y-%m)"
 RAW=""
 UA="Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 Chrome/120.0 Safari/537.36"
@@ -63,24 +64,28 @@ cf()  { curl -fsSL --connect-timeout 8 --max-time 20 -A "$UA" $HTTP11 "$@"; }
 cfr() { cf -e "https://quote.eastmoney.com/" "$@"; }
 
 # ---- 指数档案 ----
-KINDS="ndx spx"
-declare -A ANAME=(   [ndx]="纳指100"     [spx]="标普500" )
-declare -A EMSEARCH=( [ndx]="纳斯达克100" [spx]="标普500" )  # 东财搜索词(仅 --probe 用)
+# fx = 美元兑人民币汇率(页面「汇率」选项用)。它和两个指数走同一套流程,只是有这条数据的源少:
+# 留空的几项表示那个源没有(或没验证过)这条数据,源函数见到空值直接跳过。
+KINDS="ndx spx fx"
+declare -A ANAME=(   [ndx]="纳指100"     [spx]="标普500"  [fx]="美元兑人民币" )
+declare -A EMSEARCH=( [ndx]="纳斯达克100" [spx]="标普500" [fx]="美元人民币" )  # 东财搜索词(仅 --probe 用)
 # 纳指的名称必须带「100」:东财 100.NDX 是纳斯达克综合指数,只查「纳斯达克」会把它当纳指100 收下。
 # 东财没有通过校验的 secid 也没关系,后面还有 FRED / 腾讯(usNDX) 等源。
-declare -A EMNAME=(  [ndx]="纳斯达克100" [spx]="标普" )     # 返回名称须含此串
-declare -A EMBAK=(   [ndx]="100.NDX100 100.NDX" [spx]="100.SPX 100.INX" )
-declare -A FRED=(    [ndx]="NASDAQ100"   [spx]="SP500" )
-declare -A FREDFULL=([ndx]=1            [spx]=0 )           # 该指数 FRED 是否给全历史
-declare -A STQ=(     [ndx]="%5Endx"      [spx]="%5Espx" )
-declare -A YA=(      [ndx]="%5ENDX"      [spx]="%5EGSPC" )
-declare -A T12=(     [ndx]="NDX"         [spx]="SPX" )
-declare -A TENC=(    [ndx]="usNDX"       [spx]="usINX" )   # 腾讯行情指数代码
-declare -A AV=(      [ndx]="NDX"         [spx]="SPY" )
-declare -A TIING=(   [ndx]="NDX"         [spx]="SPY" )
-declare -A REF=(     [ndx]=29000         [spx]=7700 )       # 末值参考,0.55~1.8 倍算合理
-declare -A MINM=(    [ndx]=400           [spx]=240 )        # 防呆:最少月份数
-declare -A GLOB=(    [ndx]="NDX_DATA"    [spx]="SPX_DATA" )
+declare -A EMNAME=(  [ndx]="纳斯达克100" [spx]="标普"     [fx]="人民币" )     # 返回名称须含此串
+declare -A EMBAK=(   [ndx]="100.NDX100 100.NDX" [spx]="100.SPX 100.INX" [fx]="" )
+declare -A FRED=(    [ndx]="NASDAQ100"   [spx]="SP500"    [fx]="DEXCHUS" )
+declare -A FREDFULL=([ndx]=1            [spx]=0           [fx]=1 )            # 该序列 FRED 是否给全历史
+declare -A STQ=(     [ndx]="%5Endx"      [spx]="%5Espx"   [fx]="usdcny" )
+declare -A YA=(      [ndx]="%5ENDX"      [spx]="%5EGSPC"  [fx]="" )
+declare -A T12=(     [ndx]="NDX"         [spx]="SPX"      [fx]="USD%2FCNY" )
+declare -A TENC=(    [ndx]="usNDX"       [spx]="usINX"    [fx]="" )           # 腾讯行情指数代码
+declare -A AV=(      [ndx]="NDX"         [spx]="SPY"      [fx]="" )
+declare -A TIING=(   [ndx]="NDX"         [spx]="SPY"      [fx]="" )
+declare -A REF=(     [ndx]=29000         [spx]=7700       [fx]=7.1 )          # 末值参考,0.55~1.8 倍算合理
+declare -A MINM=(    [ndx]=400           [spx]=240        [fx]=240 )          # 防呆:最少月份数
+declare -A GLOB=(    [ndx]="NDX_DATA"    [spx]="SPX_DATA" [fx]="FX_DATA" )
+declare -A DEC=(     [ndx]=1             [spx]=1          [fx]=4 )            # 写进文件的小数位
+declare -A NOTE=(    [ndx]="不含分红"    [spx]="不含分红" [fx]="1 美元折合多少人民币" )
 
 SHILLER_URL="${NDX_SHILLER_URL:-https://econ.yale.edu/~shiller/data/ie_data.csv}"
 
@@ -175,7 +180,7 @@ f_em() {   # $1=kind
 }
 
 # ================= 其它源 =================
-f_fred_api() {   # 官方 REST;受版权限制 SP500 只有 10 年,所以只给纳指用
+f_fred_api() {   # 官方 REST;受版权限制 SP500 只有 10 年,所以 FREDFULL=0 的不用它
   [[ -n "${NDX_FRED_KEY:-}" ]] || return 1
   [[ "${FREDFULL[$1]}" == 1 ]] || return 1
   cf "https://api.stlouisfed.org/fred/series/observations?series_id=${FRED[$1]}&api_key=$NDX_FRED_KEY&file_type=json&observation_start=1985-01-01" \
@@ -209,6 +214,7 @@ f_stooq() {   # $1=kind $2=域名
 # 行数据形如 ["2024-12-31","开盘","收盘","高","低","量"...],收盘取第3列。
 f_tencent() {   # $1=kind
   local kind="$1" code="${TENC[$kind]}" u
+  [[ -n "$code" ]] || return 1
   for u in "https://web.ifzq.gtimg.cn/appstock/app/kline/kline?param=${code},month,,,800" \
            "https://web.ifzq.gtimg.cn/appstock/app/fqkline/get?param=${code},month,,,800,qfq"; do
     if cf "$u" -o "$TMPD/tx" 2>/dev/null; then
@@ -222,6 +228,7 @@ f_tencent() {   # $1=kind
   return 1
 }
 f_yahoo() {   # $1=kind $2=域名
+  [[ -n "${YA[$1]}" ]] || return 1
   cf "https://$2/v8/finance/chart/${YA[$1]}?range=60y&interval=1mo" -o "$TMPD/ya" || return 1
   grep -q '"timestamp"' "$TMPD/ya" || return 1
   local ts cs
@@ -255,7 +262,7 @@ f_12dt() {    # 以下三个都要 ndx.conf 里的 key,没配直接跳过。
   return 1
 }
 f_av() {
-  [[ -n "${NDX_AV_KEY:-}" ]] || return 1
+  [[ -n "${NDX_AV_KEY:-}" && -n "${AV[$1]}" ]] || return 1
   cf "https://www.alphavantage.co/query?function=TIME_SERIES_MONTHLY_ADJUSTED&symbol=${AV[$1]}&apikey=$NDX_AV_KEY" \
      -o "$TMPD/av" || return 1
   grep -q '"Monthly Adjusted Time Series"' "$TMPD/av" || return 1
@@ -267,7 +274,7 @@ f_av() {
   [[ -s "$RAW" ]]
 }
 f_tiingo() {
-  [[ -n "${NDX_TI_KEY:-}" ]] || return 1
+  [[ -n "${NDX_TI_KEY:-}" && -n "${TIING[$1]}" ]] || return 1
   cf -H "Authorization: Bearer $NDX_TI_KEY" \
      "https://api.tiingo.com/tiingo/daily/${TIING[$1]}/prices?startDate=1985-01-01&format=json" \
      -o "$TMPD/ti" || return 1
@@ -318,14 +325,18 @@ gen_one() {
   try "fred-graph"   f_fredgraph "$kind"
   [[ -n "$SRC" ]] || { warn "[FAIL] ${ANAME[$kind]} 所有数据源都拉不到"; return 1; }
 
-  sort "$RAW" | awk -v TM="$thismonth" '
+  # 同月取最后一个交易日;小数位按 DEC(指数 1 位,汇率 4 位)
+  sort "$RAW" | awk -v TM="$thismonth" -v D="${DEC[$kind]}" '
     { m = substr($1, 1, 7); if (m != TM) v[m] = $2 + 0 }
-    END { for (m in v) printf "%s %.1f\n", m, v[m] }
+    END { f = "%s %." D "f\n"; for (m in v) printf f, m, v[m] }
   ' | sort > "$TMPD/$kind/months"
 
   local n lastm lm start end closes today lastv
   n="$(wc -l < "$TMPD/$kind/months" | tr -d ' ')"
   [[ "$n" -ge "${MINM[$kind]}" ]] || { warn "[FAIL] ${ANAME[$kind]} 只解析到 $n 个月,疑似源不全"; return 1; }
+  # 页面按 start + 下标推月份(汇率还要和指数逐月对齐),中间缺一个月后面就全错位
+  awk '{ t = substr($1, 1, 4) * 12 + substr($1, 6, 2); if (NR > 1 && t != p + 1) exit 1; p = t }' \
+      "$TMPD/$kind/months" || { warn "[FAIL] ${ANAME[$kind]} 中间有缺月,放弃该源"; return 1; }
   lastm="$(tail -1 "$TMPD/$kind/months" | cut -d' ' -f1)"
   lm="$(date -d "$(date +%Y-%m-01) -1 month" +%Y-%m)"
   [[ "$lastm" == "$thismonth" || "$lastm" == "$lm" ]] || {
@@ -336,13 +347,13 @@ gen_one() {
 
   start="$(head -1 "$TMPD/$kind/months" | cut -d' ' -f1)"
   end="$lastm"
-  closes="$(awk '{printf "%s%.1f", (NR > 1 ? "," : ""), $2}' "$TMPD/$kind/months")"
+  closes="$(awk '{printf "%s%s", (NR > 1 ? "," : ""), $2}' "$TMPD/$kind/months")"
   today="$(date +%F)"
 
   mkdir -p "$(dirname "$out")"
   {
     echo "/* ${ANAME[$kind]} 月末收盘,由 update_ndx.sh 自动生成,勿手改 (源: $SRC) */"
-    echo "/* 不含分红 $start ~ $end 共 $n 个月 */"
+    echo "/* ${NOTE[$kind]} $start ~ $end 共 $n 个月 */"
     echo "window.${GLOB[$kind]} = {start:'$start', end:'$end', updated:'$today', months:$n, closes:[$closes]};"
   } > "$out.tmp" && mv -f "$out.tmp" "$out"
   log "[OK] ${ANAME[$kind]} $start ~ $end 共 $n 个月 -> $out"
@@ -497,7 +508,7 @@ probe_qqq() {   # probe_qqq 显示名 函数 [参数...];拉到之后还要过 q
   else printf '  %-13s 拉到了但校验不过: %s\n' "$nm" "$res"; fi
 }
 probe() {
-  declare -A SECKEYVAR=([ndx]="NDX_EMD_SECID" [spx]="SPX_EMD_SECID")
+  declare -A SECKEYVAR=([ndx]="NDX_EMD_SECID" [spx]="SPX_EMD_SECID" [fx]="FX_EMD_SECID")
   for kind in $KINDS; do
     echo "======== ${ANAME[$kind]} ========"
     echo "-- 东方财富 secid 实测(搜索接口候选 + 内置兜底)"
@@ -533,7 +544,7 @@ probe() {
   probe_qqq "yahoo2" q_yahoo query2.finance.yahoo.com
 }
 
-declare -A SECKEYVAR=([ndx]="NDX_EMD_SECID" [spx]="SPX_EMD_SECID")
+declare -A SECKEYVAR=([ndx]="NDX_EMD_SECID" [spx]="SPX_EMD_SECID" [fx]="FX_EMD_SECID")
 if [[ "$MODE" == probe ]]; then probe; exit 0; fi
 
 okcnt=0
@@ -541,12 +552,14 @@ log "== 纳指100 =="
 gen_one ndx "$OUT_NDX" && okcnt=$((okcnt + 1)) || true
 log "== 标普500 =="
 gen_one spx "$OUT_SPX" && okcnt=$((okcnt + 1)) || true
+# 后加的两段各放在子 shell 里:就算中途崩掉(set -u 之类),也不连累前面已经写好的文件
 log "== QQQ =="
-# 放在子 shell 里:QQQ 这段就算中途崩掉(set -u 之类),也不连累上面两个已经写好的文件
 ( gen_qqq "$OUT_QQQ" ) && okcnt=$((okcnt + 1)) || true
+log "== 美元兑人民币 =="
+( gen_one fx "$OUT_FX" ) && okcnt=$((okcnt + 1)) || true
 
 if [[ "$okcnt" -eq 0 ]]; then
-  warn "[FAIL] 三个标的都没更新成功"; exit 1
-elif [[ "$okcnt" -lt 3 ]]; then
+  warn "[FAIL] 一个都没更新成功"; exit 1
+elif [[ "$okcnt" -lt 4 ]]; then
   warn "[WARN] 只更新了 $okcnt 个,其余保留旧文件"
 fi

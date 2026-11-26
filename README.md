@@ -23,10 +23,11 @@
 ```
 ndx-calc/
 ├── index.html                      # 主页面（原 "!DOCTYPE html.txt" 改名而来）
-├── update_ndx.sh                   # 数据抓取脚本（纳指100 / 标普500 / QQQ 一起抓）
+├── update_ndx.sh                   # 数据抓取脚本（纳指100 / 标普500 / QQQ / 汇率一起抓）
 ├── ndx-data.js                     # 纳指100 月线数据（脚本生成，勿手改）
 ├── spx-data.js                     # 标普500 月线数据（脚本生成，勿手改）
 ├── qqq-data.js                     # QQQ 月末收盘价及复权收盘价（脚本生成，勿手改）
+├── fx-data.js                      # 美元兑人民币月末汇率（脚本生成，勿手改）
 ├── ndx.conf                        # API key 配置（可选，不要提交）
 ├── .gitignore
 └── .github/
@@ -40,6 +41,7 @@ ndx-calc/
 - `ndx-data.js` / `spx-data.js` **不加也能跑**——页面内嵌了 1986-01 ~ 2026-08 的完整快照。但加上后，回测数据可以每日更新。
 - `ndx.conf` 里放 API key，**绝对不能提交到公开仓库**。
 - `qqq-data.js` 和另外两个文件一样由 `update_ndx.sh` 生成、由 workflow 每日提交，不用额外配置。区别是页面**没有内嵌 QQQ 快照**，缺了这个文件 QQQ 回测会提示「数据未加载」，所以它要跟着仓库一起提交。QQQ 开启分红再投资时使用复权收盘价，不再额外估算股息。
+- `fx-data.js` 是历史回测里「计入汇率」选项用的美元兑人民币月末汇率，同样由 `update_ndx.sh` 生成、由 workflow 提交。页面没有内嵌汇率快照，缺了它只是「计入汇率」不可用，其余功能不受影响。它在 Actions 上靠 FRED（`NDX_FRED_KEY`，序列 `DEXCHUS`）；没配 key 时会依次试 stooq、TwelveData、FRED Graph。
 
 `.gitignore`：
 
@@ -147,7 +149,7 @@ jobs:
           git config user.name  "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
           # 先 add 再比：还没被跟踪的新文件 git diff 看不到
-          for f in ndx-data.js spx-data.js qqq-data.js; do
+          for f in ndx-data.js spx-data.js qqq-data.js fx-data.js; do
             if [[ -f "$f" ]]; then git add -- "$f"; fi
           done
           if git diff --cached --quiet; then
@@ -211,7 +213,13 @@ jobs:
 == QQQ ==
   数据源: yahoo1 (…… 条)
 [OK] QQQ 1999-03 ~ 2026-08 共 330 个月 -> /.../qqq-data.js
+== 美元兑人民币 ==
+  源失败: eastmoney
+  数据源: fred-api (…… 条)
+[OK] 美元兑人民币 1985-01 ~ 2026-08 共 500 个月 -> /.../fx-data.js
 ```
+
+汇率那段的 `源失败: eastmoney` 和「东财 secid 未找到」是正常的：脚本没有内置东财的汇率代码，直接走 FRED。
 
 QQQ 抓的是日线，所以「条」数有六千多，写进文件的是下面那行的月份数。
 
@@ -633,7 +641,7 @@ git push
 │  每天 07:00 (北京时间)                                   │
 │  GitHub Actions 跑 update_ndx.sh                        │
 │         ↓                                               │
-│  生成 ndx / spx / qqq-data.js 并 commit + push          │
+│  生成 ndx / spx / qqq / fx-data.js 并 commit + push     │
 │         ↓                                               │
 │  Cloudflare 检测到 push，自动重新部署                     │
 │         ↓                                               │

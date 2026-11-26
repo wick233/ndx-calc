@@ -35,7 +35,7 @@ jobs:
           git config user.name  "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
           # 先 add 再比：还没被跟踪的新文件 git diff 看不到
-          for f in ndx-data.js spx-data.js qqq-data.js; do
+          for f in ndx-data.js spx-data.js qqq-data.js fx-data.js; do
             if [[ -f "$f" ]]; then git add -- "$f"; fi
           done
           if git diff --cached --quiet; then
