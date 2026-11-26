@@ -1091,12 +1091,15 @@
     } else goalOut.textContent = "—— 填个目标，算出每月要投多少";
     goalBtn.classList.toggle("hidden", goalMon == null);
   }
-  goalBtn.addEventListener("click", function () {
+  function applyGoal() {
     if (goalMon == null) return;
     el.mon.n.value = Math.min(goalMon, parseFloat(el.mon.n.max));
     el.mon.r.value = Math.min(parseFloat(el.mon.r.max), readVal("mon"));
     render(); saveState();
-  });
+  }
+  goalBtn.addEventListener("click", applyGoal);
+  // 填完目标按回车或点到别处,就直接把算出的金额填进「每月定投」(打字过程中不动)
+  SIMPLE.goal.addEventListener("change", applyGoal);
 
   /* ---------------- 历史回测 ---------------- */
   // 数据三层优先级:浏览器实时(JSONP,东财月K,访问者网络决定成败)
