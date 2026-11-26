@@ -1,14 +1,16 @@
 #!/usr/bin/env bash
 #
-# 拉取 纳指100 + 标普500 月末收盘,生成 ndx-data.js / spx-data.js(供 qd.html 历史回测用)。
+# 拉取 纳指100 + 标普500 月末收盘、QQQ 月末价,生成 ndx-data.js / spx-data.js / qqq-data.js
+# (供 qd.html 历史回测用)。
 #
 #   bash update_ndx.sh               正常更新
 #   bash update_ndx.sh --probe       自检:东财 secid 候选 + 各源可用性,逐个打印
-#   bash update_ndx.sh [输出路径]     指定 ndx 输出(默认脚本同目录;spx 落在同目录)
+#   bash update_ndx.sh [输出路径]     指定 ndx 输出(默认脚本同目录;spx / qqq 落在同目录)
 #
 # 数据源顺序(每指数独立降级,某指数全失败只保留它的旧文件):
 #   东财 push2his(多节点重试) -> FRED REST -> Shiller 学术数据集 -> stooq -> 雅虎
 #   -> TwelveData / AlphaVantage / Tiingo(需 key)
+# QQQ 是基金,要「收盘价 + 复权价」两条线,源另算,见下面 QQQ 一节。
 #
 # 关于 FRED:fredgraph.csv 是网页下载端点,机房 IP 会被 Cloudflare 挂到超时;
 # api.stlouisfed.org 才是给程序用的,需免费 key。另外 SP500 序列受 S&P 版权
@@ -44,6 +46,7 @@ fi
 OUT_NDX="${OUT_NDX:-$SCRIPT_DIR/ndx-data.js}"
 OUT_DIR="$(cd "$(dirname "$OUT_NDX")" 2>/dev/null && pwd || dirname "$OUT_NDX")"
 OUT_SPX="$OUT_DIR/spx-data.js"
+OUT_QQQ="$OUT_DIR/qqq-data.js"
 thismonth="$(date +%Y-%m)"
 RAW=""
 UA="Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 Chrome/120.0 Safari/537.36"
@@ -325,7 +328,7 @@ gen_one() {
     warn "[FAIL] ${ANAME[$kind]} 最新数据只到 $lastm(预期 $lm),该源疑似停更,放弃"; return 1; }
   lastv="$(tail -1 "$TMPD/$kind/months" | awk '{print $2}')"
   awk -v g="$lastv" -v r="${REF[$kind]}" 'BEGIN{exit !(g>r*0.55 && g<r*1.8)}' || {
-    warn "[FAIL] ${ANAME[$kind]} 最新值 $lastv 与参考量级 $r 差太远,放弃该源"; return 1; }
+    warn "[FAIL] ${ANAME[$kind]} 最新值 $lastv 与参考量级 ${REF[$kind]} 差太远,放弃该源"; return 1; }
 
   start="$(head -1 "$TMPD/$kind/months" | cut -d' ' -f1)"
   end="$lastm"
@@ -339,6 +342,93 @@ gen_one() {
     echo "window.${GLOB[$kind]} = {start:'$start', end:'$end', updated:'$today', months:$n, closes:[$closes]};"
   } > "$out.tmp" && mv -f "$out.tmp" "$out"
   log "[OK] ${ANAME[$kind]} $start ~ $end 共 $n 个月 -> $out"
+}
+
+# ================= QQQ =================
+# QQQ 是跟踪纳指100 的基金,不是指数本身:会分红、拆过股。页面要两条线
+# (index.html 的 idxData 按「分红再投资」选项二选一):
+#   closes   = 收盘价,只做拆股调整,不含分红
+#   adjusted = 复权收盘价,分红再投资
+# 源函数往 $RAW 写三列「日期 收盘 复权」。
+
+q_yahoo() {   # $1=域名;日线(月线接口的复权价口径没验证过)。close 已做拆股调整
+  cf "https://$1/v8/finance/chart/QQQ?period1=920937600&period2=$(date +%s)&interval=1d" -o "$TMPD/yq" || return 1
+  grep -q '"symbol":"QQQ"' "$TMPD/yq" || return 1
+  local ts cs as
+  # timestamp 只认纯数字:date -f 碰到坏行会少吐一行,后面三列就对不齐了
+  ts="$(grep -o '"timestamp":\[[0-9,]*\]' "$TMPD/yq" | head -1 | sed 's/.*\[//; s/\]//; s/,/\n/g')"
+  cs="$(grep -o '"close":\[[^]]*\]' "$TMPD/yq" | head -1 | sed 's/.*\[//; s/\]//; s/,/\n/g')"
+  as="$(grep -o '"adjclose":\[[^]{]*\]' "$TMPD/yq" | head -1 | sed 's/.*\[//; s/\]//; s/,/\n/g')"
+  [[ -n "$ts" && -n "$cs" && -n "$as" ]] || return 1
+  paste <(sed 's/^/@/' <<< "$ts" | date -u -f - +%F) <(echo "$cs") <(echo "$as") \
+    | awk '$2 ~ /^[0-9.]+$/ && $3 ~ /^[0-9.]+$/ {print $1, $2, $3}' > "$RAW"
+  [[ -s "$RAW" ]]
+}
+
+# stdin:按日期排好的「日期 收盘 复权」;stdout:走完的月份「YYYY-MM 收盘 复权」。
+# 任何一项校验不过就只吐一句原因、非 0 退出。
+qqq_months() {
+  awk -v TM="$thismonth" -v LM="$(date -d "$(date +%Y-%m-01) -1 month" +%Y-%m)" '
+    function fail(msg) { print msg; exit 1 }
+    function ym(s) { return substr(s, 1, 4) * 12 + substr(s, 6, 2) }
+    $1 ~ /^[0-9][0-9][0-9][0-9]-[0-9][0-9]/ && $2 + 0 > 0 && $3 + 0 > 0 {
+      m = substr($1, 1, 7)
+      if (m == TM) next                      # 没走完的当月不要
+      if (!(m in c)) ms[++n] = m             # 同月后一行盖前一行 = 月末
+      c[m] = $2 + 0; a[m] = $3 + 0
+    }
+    END {
+      if (ms[1] != "1999-03") fail("起点是 " ms[1] ",不是上市的 1999-03")
+      if (ms[n] != LM) fail("最新只到 " ms[n] "(预期 " LM ")")
+      # 页面按 start + 下标推月份,中间缺一个月后面就全错位
+      for (i = 2; i <= n; i++) if (ym(ms[i]) != ym(ms[i - 1]) + 1) fail(ms[i - 1] " 之后缺月")
+
+      # 复权价 = 收盘价 ÷ 一个随每次分红变大的系数,所以「收盘 ÷ 复权」从上市起只降不升,
+      # 最后落在 1 附近。没算分红的线(全程是 1)、按金额加减的复权(忽高忽低)都过不了。
+      lo = c[ms[1]] / a[ms[1]]
+      if (lo < 1.05) fail("复权价没有算进分红")
+      for (i = 2; i <= n; i++) {
+        g = c[ms[i]] / a[ms[i]]
+        if (g > lo * 1.003) fail("复权口径不对(" ms[i] ")")
+        if (g < lo) lo = g
+      }
+      if (lo < 0.99 || g > 1.01) fail("末月收盘价与复权价对不上")
+
+      for (i = 1; i <= n; i++) printf "%s %.4f %.4f\n", ms[i], c[ms[i]], a[ms[i]]
+    }'
+}
+
+gen_qqq() {   # $1=输出文件
+  local out="$1" SRC="" d="$TMPD/qqq" n start end today
+  mkdir -p "$d"
+  RAW="$d/raw"
+
+  # 拉到了还不算数:过了 qqq_months 的校验才认,不然接着试下一个源
+  qtry() {
+    [[ -n "$SRC" ]] && return 0
+    : > "$RAW"
+    if ! "${@:2}"; then log "  源失败: $1"
+    elif sort "$RAW" | qqq_months > "$d/months"; then SRC="$1"; log "  数据源: $1 ($(wc -l < "$RAW") 条)"
+    else log "  源失败: $1 —— $(head -1 "$d/months")"; fi
+  }
+  qtry "yahoo1" q_yahoo query1.finance.yahoo.com
+  qtry "yahoo2" q_yahoo query2.finance.yahoo.com
+  [[ -n "$SRC" ]] || { warn "[FAIL] QQQ 所有数据源都拉不到"; return 1; }
+
+  n="$(wc -l < "$d/months" | tr -d ' ')"
+  start="$(head -1 "$d/months" | cut -d' ' -f1)"
+  end="$(tail -1 "$d/months" | cut -d' ' -f1)"
+  today="$(date +%F)"
+
+  mkdir -p "$(dirname "$out")"
+  {
+    echo "/* QQQ 月末价,由 update_ndx.sh 自动生成,勿手改 (源: $SRC) */"
+    echo "/* closes=收盘价(拆股调整,不含分红) adjusted=复权收盘价(分红再投资) $start ~ $end 共 $n 个月 */"
+    echo "window.QQQ_DATA = {start:'$start', end:'$end', updated:'$today', months:$n," \
+         "closes:[$(awk '{printf "%s%s", (NR > 1 ? "," : ""), $2}' "$d/months")]," \
+         "adjusted:[$(awk '{printf "%s%s", (NR > 1 ? "," : ""), $3}' "$d/months")]};"
+  } > "$out.tmp" && mv -f "$out.tmp" "$out"
+  log "[OK] QQQ $start ~ $end 共 $n 个月 -> $out"
 }
 
 # ================= 自检 =================
@@ -370,6 +460,13 @@ probe_src() {   # probe_src 显示名 函数 [参数...]
   fi
   : > "$RAW"
 }
+probe_qqq() {   # probe_qqq 显示名 函数 [参数...];拉到之后还要过 qqq_months 的校验
+  local nm="$1" res; shift
+  : > "$RAW"
+  if ! "$@" 2>/dev/null; then printf '  %-13s 不可用\n' "$nm"
+  elif res="$(sort "$RAW" | qqq_months)"; then printf '  %-13s OK  %s 个月\n' "$nm" "$(wc -l <<< "$res")"
+  else printf '  %-13s 拉到了但校验不过: %s\n' "$nm" "$res"; fi
+}
 probe() {
   declare -A SECKEYVAR=([ndx]="NDX_EMD_SECID" [spx]="SPX_EMD_SECID")
   for kind in $KINDS; do
@@ -400,6 +497,10 @@ probe() {
     probe_src "tiingo"       f_tiingo "$kind"
     probe_src "fred-graph"   f_fredgraph "$kind"
   done
+  echo "======== QQQ ========"
+  RAW="$TMPD/pb_qqq"
+  probe_qqq "yahoo1" q_yahoo query1.finance.yahoo.com
+  probe_qqq "yahoo2" q_yahoo query2.finance.yahoo.com
 }
 
 declare -A SECKEYVAR=([ndx]="NDX_EMD_SECID" [spx]="SPX_EMD_SECID")
@@ -410,9 +511,12 @@ log "== 纳指100 =="
 gen_one ndx "$OUT_NDX" && okcnt=$((okcnt + 1)) || true
 log "== 标普500 =="
 gen_one spx "$OUT_SPX" && okcnt=$((okcnt + 1)) || true
+log "== QQQ =="
+# 放在子 shell 里:QQQ 这段就算中途崩掉(set -u 之类),也不连累上面两个已经写好的文件
+( gen_qqq "$OUT_QQQ" ) && okcnt=$((okcnt + 1)) || true
 
 if [[ "$okcnt" -eq 0 ]]; then
-  warn "[FAIL] 两个指数都没更新成功"; exit 1
-elif [[ "$okcnt" -lt 2 ]]; then
-  warn "[WARN] 只更新了 $okcnt 个指数,另一个保留旧文件"
+  warn "[FAIL] 三个标的都没更新成功"; exit 1
+elif [[ "$okcnt" -lt 3 ]]; then
+  warn "[WARN] 只更新了 $okcnt 个,其余保留旧文件"
 fi

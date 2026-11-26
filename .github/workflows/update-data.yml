@@ -34,10 +34,13 @@ jobs:
         run: |
           git config user.name  "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          if git diff --quiet -- ndx-data.js spx-data.js; then
+          # 先 add 再比：还没被跟踪的新文件 git diff 看不到
+          for f in ndx-data.js spx-data.js qqq-data.js; do
+            if [[ -f "$f" ]]; then git add -- "$f"; fi
+          done
+          if git diff --cached --quiet; then
             echo "数据没变化，跳过提交"
             exit 0
           fi
-          git add ndx-data.js spx-data.js
           git commit -m "chore(data): $(date -u +%F) 自动更新指数月线"
           git push

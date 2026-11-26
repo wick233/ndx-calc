@@ -23,9 +23,10 @@
 ```
 ndx-calc/
 ├── index.html                      # 主页面（原 "!DOCTYPE html.txt" 改名而来）
-├── update_ndx.sh                   # 数据抓取脚本
+├── update_ndx.sh                   # 数据抓取脚本（纳指100 / 标普500 / QQQ 一起抓）
 ├── ndx-data.js                     # 纳指100 月线数据（脚本生成，勿手改）
 ├── spx-data.js                     # 标普500 月线数据（脚本生成，勿手改）
+├── qqq-data.js                     # QQQ 月末收盘价及复权收盘价（脚本生成，勿手改）
 ├── ndx.conf                        # API key 配置（可选，不要提交）
 ├── .gitignore
 └── .github/
@@ -38,6 +39,7 @@ ndx-calc/
 - 主页面**必须叫 `index.html`**，否则访问根路径 404。
 - `ndx-data.js` / `spx-data.js` **不加也能跑**——页面内嵌了 1986-01 ~ 2026-08 的完整快照。但加上后，回测数据可以每日更新。
 - `ndx.conf` 里放 API key，**绝对不能提交到公开仓库**。
+- `qqq-data.js` 和另外两个文件一样由 `update_ndx.sh` 生成、由 workflow 每日提交，不用额外配置。区别是页面**没有内嵌 QQQ 快照**，缺了这个文件 QQQ 回测会提示「数据未加载」，所以它要跟着仓库一起提交。QQQ 开启分红再投资时使用复权收盘价，不再额外估算股息。
 
 `.gitignore`：
 
@@ -144,11 +146,14 @@ jobs:
         run: |
           git config user.name  "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          if git diff --quiet -- ndx-data.js spx-data.js; then
+          # 先 add 再比：还没被跟踪的新文件 git diff 看不到
+          for f in ndx-data.js spx-data.js qqq-data.js; do
+            if [[ -f "$f" ]]; then git add -- "$f"; fi
+          done
+          if git diff --cached --quiet; then
             echo "数据没变化，跳过提交"
             exit 0
           fi
-          git add ndx-data.js spx-data.js
           git commit -m "chore(data): $(date -u +%F) 自动更新指数月线"
           git pull --rebase origin main || true
           git push
@@ -164,6 +169,8 @@ jobs:
 东财 → FRED API → 腾讯行情 → Shiller → stooq → Yahoo
      → TwelveData → AlphaVantage → Tiingo → FRED Graph
 ```
+
+上面是两个指数的顺序。QQQ 是基金，要同时拿到「收盘价」和「复权价」两条线，源单独一套：`Yahoo query1 → Yahoo query2`，不需要 key；拉到之后还要过一遍校验（从 1999-03 起月份连续、复权价确实算进了分红）才会写文件。
 
 **前几个免费源大概率能通，可以先不配任何 key 跑一次。** 全失败了再配：
 
@@ -201,9 +208,16 @@ jobs:
 == 标普500 ==
   数据源: eastmoney (488 条)
 [OK] 标普500 1986-01 ~ 2026-08 共 488 个月 -> /.../spx-data.js
+== QQQ ==
+  数据源: yahoo1 (…… 条)
+[OK] QQQ 1999-03 ~ 2026-08 共 330 个月 -> /.../qqq-data.js
 ```
 
+QQQ 抓的是日线，所以「条」数有六千多，写进文件的是下面那行的月份数。
+
 **如果全是 `源失败`：** 配 `NDX_FRED_KEY` 后重试。
+
+**只有 QQQ 失败：** QQQ 只走 Yahoo，被限流时会打 `源失败: yahoo1 / yahoo2`。这种情况保留旧的 `qqq-data.js`，不影响另外两个，第二天的定时任务会再试——月线数据一个月成功一次就够。
 
 ---
 
@@ -619,7 +633,7 @@ git push
 │  每天 07:00 (北京时间)                                   │
 │  GitHub Actions 跑 update_ndx.sh                        │
 │         ↓                                               │
-│  生成 ndx-data.js / spx-data.js 并 commit + push         │
+│  生成 ndx / spx / qqq-data.js 并 commit + push          │
 │         ↓                                               │
 │  Cloudflare 检测到 push，自动重新部署                     │
 │         ↓                                               │

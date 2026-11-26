@@ -78,6 +78,7 @@
 
   header { display: flex; align-items: baseline; justify-content: space-between; gap: 16px; flex-wrap: wrap; margin-bottom: 6px; }
   h1 { font-size: 22px; font-weight: 600; margin: 0; letter-spacing: -0.01em; }
+  .head-tools { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
   .sub { color: var(--text-secondary); font-size: 13px; margin: 0 0 24px; }
 
   .btn {
@@ -211,8 +212,16 @@
 <div class="wrap">
 
   <header>
-    <h1>纳指定投收益计算器</h1>
-    <button class="btn" id="theme" type="button">切换深色</button>
+    <h1 id="pagetitle">纳指定投收益计算器</h1>
+    <div class="head-tools">
+      <!-- 整页指数切换：标题、参考文案、回撤数字、历史回测一起换（逻辑见 syncIdx） -->
+      <div class="seg" id="idxseg" role="group" aria-label="切换标的">
+        <button class="btn" type="button" data-idx="ndx" aria-pressed="true">纳指100</button>
+        <button class="btn" type="button" data-idx="spx" aria-pressed="false">标普500</button>
+        <button class="btn" type="button" data-idx="qqq" aria-pressed="false">QQQ</button>
+      </div>
+      <button class="btn" id="theme" type="button">切换深色</button>
+    </div>
   </header>
   <p class="sub">按月复利计算。设定本金、每月定投、预期年化与费率，看十年后的构成。</p>
 
@@ -360,25 +369,26 @@
   <!-- 回撤情景 -->
   <div class="card">
     <h2>如果期末正好碰上下跌</h2>
-    <p class="note">纳指历史最大回撤：2000–2002 年 −83%，2008 年 −54%，2022 年 −33%。取钱的时点由不了你，所以这一行值得看。</p>
+    <p class="note" id="ddnote">纳指历史最大回撤：2000–2002 年 −83%，2008 年 −54%，2022 年 −33%。取钱的时点由不了你，所以这一行值得看。</p>
     <div class="dd" id="dd"></div>
   </div>
 
   <!-- 历史回测：把方案放到真实行情里 -->
   <div class="card">
-    <h2>历史回测 · 同样的方案放在真实指数里</h2>
+    <h2>历史回测 · 同样的方案放在真实行情里</h2>
     <div class="bt-opt">
       <div class="ctrl">
-        <label for="n_btidx">回测指数</label>
+        <label for="s_btidx">回测标的</label>
         <div class="row">
           <select id="s_btidx" style="font:inherit;font-size:14px;width:100%;padding:7px 9px;color:var(--text-primary);background:var(--field);border:1px solid var(--border);border-radius:8px">
             <option value="ndx" selected>纳斯达克100</option>
             <option value="spx">标普500</option>
+            <option value="qqq">QQQ</option>
           </select>
         </div>
       </div>
       <div class="ctrl">
-        <label for="n_btwin">回测窗口</label>
+        <label for="s_btwin">回测窗口</label>
         <div class="row">
           <select id="s_btwin" style="font:inherit;font-size:14px;width:100%;padding:7px 9px;color:var(--text-primary);background:var(--field);border:1px solid var(--border);border-radius:8px">
             <option value="0">全部历史（自数据起点）</option>
@@ -389,7 +399,7 @@
         </div>
       </div>
       <div class="ctrl">
-        <label for="n_btdiv">分红再投资</label>
+        <label for="s_btdiv">分红再投资</label>
         <div class="row">
           <select id="s_btdiv" style="font:inherit;font-size:14px;width:100%;padding:7px 9px;color:var(--text-primary);background:var(--field);border:1px solid var(--border);border-radius:8px">
             <option value="1" selected>加回分红（按指数股息率近似）</option>
@@ -412,6 +422,7 @@
   <!-- 每日更新的数据(服务器 cron 生成);加载失败就用上面的内嵌数据 -->
   <script src="ndx-data.js"></script>
   <script src="spx-data.js"></script>
+  <script src="qqq-data.js"></script>
   <script>
   /* 纳指100 月末收盘(FRED NASDAQ100,价指数不含分红) 1986-01 ~ 2026-08,共 488 个月 */
   var NDX_START = '1986-01';
@@ -1045,7 +1056,7 @@
     document.getElementById("netnote").textContent =
       "扣费后净年化 " + ((readVal("rate") - readVal("fee"))).toFixed(1) +
       "%（" + readVal("rate").toFixed(1) + "% 收益 − " + readVal("fee").toFixed(1) + "% 费率）。" +
-      "参考：纳指 100 长期年化约 10%~13%，过去十年更高，但 2000–2010 那十年为负。";
+      "参考：" + IDX[idxKey()].rateNote;
   }
 
   /* ---------------- 历史回测 ---------------- */
@@ -1053,31 +1064,100 @@
   //   > 同目录静态文件(cron 生成,window.NDX_DATA/SPX_DATA) > 页面内嵌快照。
   // 每个指数档案: yld = 长期股息率(年化),勾选「分红再投资」时按月加回——
   // 两者都是价指数,本身不含分红; emSec = 东财 secid 候选,按序试。
+  // title / defRate / rateNote / ddNote 供整页切换用:页面标题、默认预期年化(%)、
+  // 「参数设定」下的收益率参考、「回撤情景」里的历史回撤。
   var IDX = {
     ndx: { name: "纳指100", full: "纳斯达克100", yld: 0.008,
            extName: "NDX_DATA", extFile: "ndx-data.js",
            emSec: ["100.NDX", "100.NDX100"], emName: "100", ref: 29000, minM: 400,
-           emb: { start: NDX_START, end: NDX_END, closes: NDX_CLOSE } },
+           emb: { start: NDX_START, end: NDX_END, closes: NDX_CLOSE },
+           title: "纳指定投收益计算器", defRate: 12,
+           rateNote: "纳指 100 长期年化约 10%~13%，过去十年更高，但 2000–2010 那十年为负。",
+           ddNote: "纳指历史最大回撤：2000–2002 年 −83%，2008 年 −54%，2022 年 −33%。" },
     spx: { name: "标普500", full: "标普500", yld: 0.018,
            extName: "SPX_DATA", extFile: "spx-data.js",
            emSec: ["100.SPX", "100.INX"], emName: "标普", ref: 7700, minM: 240,
-           emb: { start: SPX_START, end: SPX_END, closes: SPX_CLOSE } },
+           emb: { start: SPX_START, end: SPX_END, closes: SPX_CLOSE },
+           title: "标普500定投收益计算器", defRate: 10,
+           rateNote: "标普 500 长期年化约 10%（含分红；纯价格约 6%~7%），过去十年更高，但 2000–2009 那十年为负。",
+           ddNote: "标普500 历史最大回撤：2000–2002 年 −49%，2007–2009 年 −57%，2022 年 −25%。" },
+    qqq: { name: "QQQ", full: "QQQ", extName: "QQQ_DATA", extFile: "qqq-data.js",
+           title: "QQQ 定投收益计算器", defRate: 12,
+           rateNote: "QQQ 跟踪纳斯达克100；预期年化是模拟参数，不代表未来收益。",
+           ddNote: "QQQ 历史上经历过互联网泡沫和金融危机，回撤可能持续多年。" },
   };
   function idxKey() {
     var k = SIMPLE.btidx.value;
     return IDX[k] ? k : "ndx";
   }
+
+  /* ---- 整页指数切换 ----
+     当前指数只有一份状态:回测卡片里的 <select id="s_btidx">(随存档一起保存/恢复),
+     页头的分段按钮是同一个开关的另一个入口。指数一变,标题、收益率参考、历史回撤、
+     回测一起换。做法同 syncStopRange:挂在 render() 开头,没变就直接返回。 */
+  var pageIdx = null, idxSeg = document.getElementById("idxseg");
+  function syncIdx() {
+    var key = idxKey();
+    if (key === pageIdx) return;
+    var prof = IDX[key], prev = pageIdx ? IDX[pageIdx] : null;
+    // 预期年化还停在上一个指数的默认值(=没动过)才跟着换,自己填过的数不碰。
+    // 首次进来 prev 为空:那是存档或 HTML 默认值,原样保留。
+    if (prev && readVal("rate") === prev.defRate) {
+      el.rate.n.value = prof.defRate; el.rate.r.value = prof.defRate;
+    }
+    pageIdx = key;
+    document.title = prof.title;
+    document.getElementById("pagetitle").textContent = prof.title;
+    document.getElementById("ddnote").textContent = prof.ddNote + "取钱的时点由不了你，所以这一行值得看。";
+    SIMPLE.btdiv.options[0].textContent = key === "qqq" ? "分红再投资（复权收盘价）" : "加回分红（按指数股息率近似）";
+    SIMPLE.btdiv.options[1].textContent = key === "qqq" ? "不含分红（拆股调整收盘价）" : "不含分红（纯价格指数）";
+    Array.prototype.forEach.call(idxSeg.querySelectorAll("button"), function (b) {
+      b.setAttribute("aria-pressed", b.getAttribute("data-idx") === key ? "true" : "false");
+    });
+  }
+  idxSeg.addEventListener("click", function (e) {
+    var b = e.target.closest("button[data-idx]");
+    if (!b || b.getAttribute("data-idx") === idxKey()) return;
+    SIMPLE.btidx.value = b.getAttribute("data-idx");
+    render(); saveState();
+  });
+
+  /* ---- 三层数据按月拼成一条 ----
+     各层起点不一样,"谁优先级高就整条用谁"会把别的层里更早的历史一起丢掉。
+     所以:末月最新的那层管它自己覆盖的月份,起点更早的层只补前面那一段。 */
+  function endAbs(s) { return absIndexOf(s.start) + s.closes.length - 1; }
+  // older 只贡献 newer 起点之前的月份。能不能拼看重叠段:同一条指数的月末收盘,
+  // 换个数据源也该几乎一样;对不上(不是同一条指数,或一边是月均价)、重叠不足一年,
+  // 就不拼,只用 newer。
+  function splice(older, newer) {
+    var off = absIndexOf(newer.start) - absIndexOf(older.start);   // newer 起点在 older 里的下标
+    if (off <= 0) return newer;                                    // older 并不更早,没东西可补
+    var n = Math.min(older.closes.length - off, newer.closes.length), bad = 0;
+    for (var i = 0; i < n; i++)
+      if (!(Math.abs(older.closes[off + i] / newer.closes[i] - 1) <= 0.01)) bad++;
+    if (n < 12 || bad > n * 0.1) return newer;
+    return { start: older.start, closes: older.closes.slice(0, off).concat(newer.closes),
+             updated: newer.updated, ext: newer.ext, live: newer.live };
+  }
   function idxData(key) {
-    var c = IDX[key], e = window[c.extName], emb = c.emb;
-    if (LIVE[key]) return LIVE[key];
-    // 静态文件(cron 生成)只要"不比内嵌快照旧"就用它;各源起始月不完全一致
-    // (FRED 的标普500 只回到 1987-08),所以不能卡 start 必须更早,否则会被永久拒用。
-    var extOk = e && e.closes && e.closes.length > 100 &&
-      (!emb || String(e.end) >= String(emb.end) || e.closes.length >= emb.closes.length);
-    if (extOk) return { start: e.start, end: e.end, updated: e.updated, closes: e.closes, ext: true };
-    if (emb && emb.closes)
-      return { start: emb.start, end: emb.end, updated: "", closes: emb.closes, ext: false };
-    return null;      // 三层都没有
+    var c = IDX[key], e = window[c.extName], emb = c.emb, out = null;
+    if (key === "qqq") {
+      if (!e || !Array.isArray(e.closes) || !Array.isArray(e.adjusted) ||
+          e.closes.length < 2 || e.closes.length !== e.adjusted.length) return null;
+      return { start: e.start, end: e.end, updated: e.updated, ext: true,
+               closes: SIMPLE.btdiv.value === "1" ? e.adjusted : e.closes };
+    }
+    // 低优先级在前:内嵌快照 < 静态文件(cron 生成) < 浏览器实时;末月相同时后者说了算
+    [ emb && emb.closes ? { start: emb.start, closes: emb.closes, updated: "", ext: false } : null,
+      e && e.closes && e.closes.length > 100 ? { start: e.start, closes: e.closes, updated: e.updated, ext: true } : null,
+      LIVE[key] || null
+    ].forEach(function (s) {
+      if (!s || absIndexOf(s.start) == null) return;
+      out = !out ? s : endAbs(s) >= endAbs(out) ? splice(out, s) : splice(s, out);
+    });
+    if (!out) return null;      // 三层都没有
+    return { start: out.start, end: idxLabel(out.start, out.closes.length - 1), closes: out.closes,
+             updated: out.updated, ext: out.ext, live: out.live };
   }
 
   /* ---- 浏览器实时层:JSONP 拉东财月K ----
@@ -1143,6 +1223,7 @@
   function initLive() {
     if (!document.createElement) return;
     Object.keys(IDX).forEach(function (kind) {
+      if (!IDX[kind].emSec) return;
       var cached = liveCacheGet(kind);
       if (cached) { LIVE[kind] = cached; render(); }        // 先用当天缓存渲染
       liveFetch(kind, function (d) {
@@ -1161,15 +1242,15 @@
       "（由 update_ndx.sh 生成），或改用纳斯达克100" };
     var need = d.yrs * 12, closes = data.closes;
     var rets = [], divOn = SIMPLE.btdiv.value === "1",
-        divM = Math.pow(1 + prof.yld, 1 / 12) - 1, feeM = readVal("fee") / 100 / 12;
+        divM = Math.pow(1 + (prof.yld || 0), 1 / 12) - 1, feeM = readVal("fee") / 100 / 12;
     for (var i = 0; i < closes.length - 1; i++)
       rets.push(closes[i + 1] / closes[i] - 1 + (divOn ? divM : 0) - feeM);
 
     var maxS = rets.length - need;
-    if (maxS < 1) return { err: "回测需要至少 " + d.yrs + " 年历史数据（" + prof.name + " 当前到 " + idxLabel(data.start, closes.length - 1) + "）" };
+    if (maxS < 0) return { err: "回测需要至少 " + d.yrs + " 年历史数据（" + prof.name + "：" + data.start + " 至 " + data.end + "）" };
     var winYrs = Math.round(parseFloat(SIMPLE.btwin.value) || 0);
     var minS = winYrs > 0 ? Math.max(0, maxS - winYrs * 12) : 0;
-    if (maxS - minS < 2) return { err: "回测窗口太短，凑不出几个完整" + d.yrs + "年期——换「全部历史」或缩短年限" };
+
 
     var stopM = d.stop > 0 ? d.stop * 12 : Infinity,
         spend = d.spend;
@@ -1189,7 +1270,8 @@
       if (!best  || bal > best.val)  best  = { val: bal, s: s };
     }
     finals.sort(function (a, b) { return a - b; });
-    var med = finals[Math.floor(finals.length / 2)];
+    var mid = Math.floor(finals.length / 2);
+    var med = finals.length % 2 ? finals[mid] : (finals[mid - 1] + finals[mid]) / 2;
     return {
       count: finals.length, med: med, worst: worst, best: best,
       lossPct: lost / finals.length * 100, beatPct: beat / finals.length * 100,
@@ -1216,7 +1298,7 @@
       return (d0 >= 0 ? "＋" : "−") + Math.abs(d0 * 100).toFixed(0) + "%";
     }
     var tiles = [
-      ["中位数结局", yuan(bt.med), "一半窗口比这好；" + pct(bt.med), bt.med >= prin ? "up" : "down"],
+      ["中位数结局", yuan(bt.med), (bt.count === 1 ? "仅 1 个完整窗口；" : "相对本金；") + pct(bt.med), bt.med >= prin ? "up" : "down"],
       ["最惨窗口", yuan(bt.worst.val), "起于 " + idxLabel(data.start, bt.worst.s) + "，" + pct(bt.worst.val), "down"],
       ["最好窗口", yuan(bt.best.val), "起于 " + idxLabel(data.start, bt.best.s) + "，" + pct(bt.best.val), "up"],
       ["亏损概率", bt.lossPct.toFixed(0) + "%", "共 " + bt.count + " 个起点，本金 " + yuan(prin), bt.lossPct > 0 ? "down" : "up"],
@@ -1231,11 +1313,14 @@
     grid.innerHTML = h;
     note.textContent = "把左侧整套方案（本金、分段/递增、停投、费率）原样放进 " + data.start + " 以来的" + prof.full +
       "（数据至 " + data.end +
-      (data.live ? "，本次打开页面时从东方财富实时获取" :
+      (key === "qqq" ? "，数据更新于 " + data.updated :
+        data.live ? "，本次打开页面时从东方财富实时获取" :
         data.ext ? "，每日自动更新" + (data.updated ? "，最近更新 " + data.updated : "") : "，内置快照") + "），" +
       (bt.winYrs ? "只取最近 " + bt.winYrs + " 年内开始" : "从任意月份") + "起投满 " + d.yrs +
-      " 年，滚动共 " + bt.count + " 个起点。分红" + (bt.divOn ? "按 " + (prof.yld * 100).toFixed(1) + "%/年 加回" : "未计") +
-      "（" + prof.name + "长期股息率约 " + (prof.yld * 100).toFixed(1) + "%）；价格为真值，误差主要来自分红估计与费率近似。";
+      " 年，滚动共 " + bt.count + " 个起点。" + (key === "qqq"
+        ? (bt.divOn ? "使用含分红再投资的复权收盘价。" : "使用拆股调整收盘价，不含分红。")
+        : "分红" + (bt.divOn ? "按 " + (prof.yld * 100).toFixed(1) + "%/年 加回" : "未计") +
+          "（" + prof.name + "长期股息率约 " + (prof.yld * 100).toFixed(1) + "%）；价格为真值，误差主要来自分红估计与费率近似。");
     since.textContent = key === "spx"
       ? "提示：同一起点上标普500 的结局比纳指温和（波动小、回撤浅），代价是长期收益也低一截——来回切一下这两个选项，就是「波动换收益」的直观版本。"
       : "提示：「最惨窗口」基本都是 1999–2001、2007、2021 这类山顶起投——同一起点差异比想象的大得多，定投的意义正是摊平它。";
@@ -1271,6 +1356,7 @@
 
   /* ---------------- 主循环 ---------------- */
   function render() {
+    syncIdx();
     syncStopRange();
     var d = compute();
     stageChain.textContent = d.stDesc;
