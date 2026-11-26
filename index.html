@@ -287,6 +287,8 @@
       <label for="n_goal">目标反推：期末想要</label>
       <input type="number" id="n_goal" min="0" step="10" placeholder="如 200">
       <span class="unit">万元</span>
+      <input type="checkbox" id="k_goalreal">
+      <label for="k_goalreal">按今天的购买力</label>
       <span id="goalout"></span>
       <button class="btn hidden" id="b_goal" type="button">填入「每月定投」</button>
     </div>
@@ -495,6 +497,7 @@
     growthOn: document.getElementById("k_growth"),
     save: document.getElementById("k_save"),
     goal: document.getElementById("n_goal"),
+    goalReal: document.getElementById("k_goalreal"),
     btidx: document.getElementById("s_btidx"),
     btwin: document.getElementById("s_btwin"),
     btdiv: document.getElementById("s_btdiv"),
@@ -1108,8 +1111,13 @@
   // 所以试算两个点就能直接解出需要的金额,不用迭代。
   var goalMon = null, goalOut = document.getElementById("goalout"), goalBtn = document.getElementById("b_goal");
   function drawGoal(d) {
-    var goal = parseFloat(SIMPLE.goal.value) * 1e4;
+    var goal = parseFloat(SIMPLE.goal.value) * 1e4, realTxt = "";
     goalMon = null;
+    // 「按今天的购买力」:目标先按通胀放大到期末那年的等值金额,再反推
+    if (goal > 0 && SIMPLE.goalReal.checked && d.infl > 0) {
+      goal *= Math.pow(1 + d.infl, d.yrs);
+      realTxt = "按 " + (d.infl * 100).toFixed(1) + "% 通胀，届时需要 " + yuan(goal) + "；";
+    }
     if (goal > 0) {
       var end = function (m) { var p = compute(m).pts; return p[p.length - 1].val; };
       var v0 = end(0), slope = (end(1000) - v0) / 1000;
@@ -1117,7 +1125,7 @@
       else if (!(slope > 0)) goalOut.textContent = "→ 分段定投已覆盖全部年份，「每月定投」不起作用，请改分段金额";
       else {
         goalMon = Math.ceil((goal - v0) / slope);
-        goalOut.textContent = "→ 每月需投 " + goalMon.toLocaleString("zh-CN") + " 元（按净年化 " +
+        goalOut.textContent = "→ 每月需投 " + goalMon.toLocaleString("zh-CN") + " 元（" + realTxt + "按净年化 " +
           (d.net * 100).toFixed(1) + "%、" + d.yrs + " 年" +
           (d.growthOn ? "，此为第 1 年金额，之后逐年 +" + (d.growth * 100).toFixed(1) + "%" : "") +
           (d.stop > 0 && d.stop < d.yrs ? "，第 " + d.stop + " 年停投" : "") + "）";
@@ -1134,6 +1142,7 @@
   goalBtn.addEventListener("click", applyGoal);
   // 填完目标按回车或点到别处,就直接把算出的金额填进「每月定投」(打字过程中不动)
   SIMPLE.goal.addEventListener("change", applyGoal);
+  SIMPLE.goalReal.addEventListener("change", applyGoal);
 
   /* ---------------- 历史回测 ---------------- */
   // 数据三层优先级:浏览器实时(JSONP,东财月K,访问者网络决定成败)
@@ -1336,14 +1345,23 @@
     // 途中最大浮亏:每个窗口里「市值 ÷ 已投入本金 − 1」的最低点。
     // 开始取钱之后市值本来就该低于本金,那段不算。
     var inv = [], acc = d.lump, dips = [], deep = null, ends = [];
+    var ones = [], oneWin = 0, oneDeep = 0;
     for (var k = 0; k < need; k++) { acc += d.payAt(k); inv.push(acc); }
     for (var s = minS; s <= maxS; s++) {
-      var bal = d.lump, mi = 0, dip = 0;
+      // one = 对照组:把全部本金(acc)在第一个月一次性投进去,其余规则相同
+      var bal = d.lump, mi = 0, dip = 0, one = acc, oneDip = 0;
       for (; mi < need; mi++) {
         bal = bal * (1 + rets[s + mi]) + d.payAt(mi);
-        if (d.stop > 0 && mi >= stopM && spend > 0) bal = Math.max(0, bal - spend);
-        else if (inv[mi] > 0 && bal / inv[mi] - 1 < dip) dip = bal / inv[mi] - 1;
+        one *= 1 + rets[s + mi];
+        if (d.stop > 0 && mi >= stopM && spend > 0) { bal = Math.max(0, bal - spend); one = Math.max(0, one - spend); }
+        else {
+          if (inv[mi] > 0 && bal / inv[mi] - 1 < dip) dip = bal / inv[mi] - 1;
+          if (acc > 0 && one / acc - 1 < oneDip) oneDip = one / acc - 1;
+        }
       }
+      ones.push(one);
+      if (one > bal) oneWin++;
+      if (oneDip < oneDeep) oneDeep = oneDip;
       dips.push(dip);
       if (!deep || dip < deep.v) deep = { v: dip, s: s };
       var prin = d.pts[d.pts.length - 1].prin;       // 投入与行情无关,固定
@@ -1358,7 +1376,11 @@
     var med = finals.length % 2 ? finals[mid] : (finals[mid - 1] + finals[mid]) / 2;
     dips.sort(function (a, b) { return a - b; });
     ends.sort(function (a, b) { return a.v - b.v; });
+    ones.sort(function (a, b) { return a - b; });
     return {
+      // 一次性投入对照;没有后续定投时两者是一回事,不给
+      one: acc > d.lump ? { winPct: oneWin / ones.length * 100, dip: oneDeep,
+                            med: ones.length % 2 ? ones[mid] : (ones[mid - 1] + ones[mid]) / 2 } : null,
       rets: rets, inv: inv, medS: ends[mid].s,     // 画曲线用:月收益、逐月累计本金、中位窗口的起点
       dipWorst: deep, dipMed: dips.length % 2 ? dips[mid] : (dips[mid - 1] + dips[mid]) / 2,
       count: finals.length, med: med, worst: worst, best: best,
@@ -1508,6 +1530,8 @@
         "对照固定利率投影 " + yuan(d.pts[d.pts.length - 1].val), ""],
     ];
     var h = "";
+    if (bt.one) tiles.push(["若一次性投入", bt.one.winPct.toFixed(0) + "% 窗口更优",
+      "把 " + yuan(prin) + " 一开始全投；中位数 " + yuan(bt.one.med) + "，途中最大浮亏 −" + (-bt.one.dip * 100).toFixed(0) + "%", ""]);
     tiles.forEach(function (t) {
       h += '<div class="dd-item"><div class="k">' + t[0] + '</div><div class="v ' + t[3] + '">' +
            t[1] + '</div><div class="m">' + t[2] + "</div></div>";
