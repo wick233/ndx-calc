@@ -7,7 +7,7 @@
 #   bash update_ndx.sh --probe       自检:东财 secid 候选 + 各源可用性,逐个打印
 #   bash update_ndx.sh [输出路径]     指定 ndx 输出(默认脚本同目录;其余几个落在同目录)
 #
-# 数据源顺序(每指数独立降级,某指数全失败只保留它的旧文件):
+# 数据源顺序(每个标的独立降级:拉不到、或拉到了但过不了校验,就换下一个;全失败只保留它的旧文件):
 #   东财 push2his(多节点重试) -> FRED REST -> Shiller 学术数据集 -> stooq -> 雅虎
 #   -> TwelveData / AlphaVantage / Tiingo(需 key)
 # QQQ 是基金,要「收盘价 + 复权价」两条线,源另算,见下面 QQQ 一节。
@@ -81,11 +81,13 @@ declare -A T12=(     [ndx]="NDX"         [spx]="SPX"      [fx]="USD%2FCNY" )
 declare -A TENC=(    [ndx]="usNDX"       [spx]="usINX"    [fx]="" )           # 腾讯行情指数代码
 declare -A AV=(      [ndx]="NDX"         [spx]="SPY"      [fx]="" )
 declare -A TIING=(   [ndx]="NDX"         [spx]="SPY"      [fx]="" )
-declare -A REF=(     [ndx]=29000         [spx]=7700       [fx]=7.1 )          # 末值参考,0.55~1.8 倍算合理
+# 末值参考,0.55~1.8 倍算合理。这里写的只是兜底:现有文件里有末值时以它为准(见 use_file_ref)
+declare -A REF=(     [ndx]=29000         [spx]=7700       [fx]=7.1 )
 declare -A MINM=(    [ndx]=400           [spx]=240        [fx]=240 )          # 防呆:最少月份数
 declare -A GLOB=(    [ndx]="NDX_DATA"    [spx]="SPX_DATA" [fx]="FX_DATA" )
 declare -A DEC=(     [ndx]=1             [spx]=1          [fx]=4 )            # 写进文件的小数位
 declare -A NOTE=(    [ndx]="不含分红"    [spx]="不含分红" [fx]="1 美元折合多少人民币" )
+declare -A OUTF=(    [ndx]="$OUT_NDX"    [spx]="$OUT_SPX" [fx]="$OUT_FX" )   # 各自的输出文件
 
 SHILLER_URL="${NDX_SHILLER_URL:-https://econ.yale.edu/~shiller/data/ie_data.csv}"
 
@@ -294,10 +296,44 @@ f_fredgraph() {   # 网页下载端点,机房 IP 基本被 Cloudflare 挂住 —
 }
 
 # ================= 生成 =================
+# 量级校验的参考值。内置的 REF 过几年就会过时(指数涨跌超出 0.55~1.8 倍之后,更新会全部被拒),
+# 所以现有文件里有末值就用它 —— 相邻两次更新之间不可能差这么多;没有文件(首次运行)才用内置的。
+# 哪天文件本身错得离谱、新数据一直被拒:删掉那个文件再跑一次,就回到内置的 REF。
+use_file_ref() {   # $1=kind $2=现有输出文件
+  local v=""
+  if [[ -f "$2" ]]; then
+    v="$(grep -o 'closes:\[[^]]*\]' "$2" | head -1 | sed 's/\]$//; s/.*,//; s/.*\[//')" || true
+  fi
+  if [[ "$v" =~ ^[0-9]+([.][0-9]+)?$ ]] && awk -v v="$v" 'BEGIN { exit !(v > 0) }'; then REF[$1]="$v"; fi
+}
+
+# $RAW(「日期 值」,可乱序、同月多行) -> $TMPD/$kind/months(每月一行「YYYY-MM 值」)。
+# 顺带校验;不过就往 stdout 吐一句原因、返回非 0,调用方据此换下一个源。
+months_ok() {   # $1=kind
+  local kind="$1" f="$TMPD/$1/months" n lastm lm lastv
+  # 同月取最后一个交易日;没走完的当月不要;小数位按 DEC(指数 1 位,汇率 4 位)
+  sort "$RAW" | awk -v TM="$thismonth" -v D="${DEC[$kind]}" '
+    { m = substr($1, 1, 7); if (m != TM) v[m] = $2 + 0 }
+    END { f = "%s %." D "f\n"; for (m in v) printf f, m, v[m] }
+  ' | sort > "$f"
+  n="$(wc -l < "$f" | tr -d ' ')"
+  [[ "$n" -ge "${MINM[$kind]}" ]] || { echo "只解析到 $n 个月,疑似源不全"; return 1; }
+  # 页面按 start + 下标推月份(汇率还要和指数逐月对齐),中间缺一个月后面就全错位
+  awk '{ t = substr($1, 1, 4) * 12 + substr($1, 6, 2); if (NR > 1 && t != p + 1) exit 1; p = t }' "$f" \
+    || { echo "中间有缺月"; return 1; }
+  lastm="$(tail -1 "$f" | cut -d' ' -f1)"
+  lm="$(date -d "$(date +%Y-%m-01) -1 month" +%Y-%m)"
+  [[ "$lastm" == "$lm" ]] || { echo "最新只到 $lastm(预期 $lm),疑似停更"; return 1; }
+  lastv="$(tail -1 "$f" | cut -d' ' -f2)"
+  awk -v g="$lastv" -v r="${REF[$kind]}" 'BEGIN { exit !(g > r * 0.55 && g < r * 1.8) }' \
+    || { echo "最新值 $lastv 与参考量级 ${REF[$kind]} 差太远"; return 1; }
+}
+
 gen_one() {
-  local kind="$1" out="$2" SRC=""
+  local kind="$1" out="$2" SRC="" f="$TMPD/$1/months"
   mkdir -p "$TMPD/$kind"
   RAW="$TMPD/$kind/daily.txt"
+  use_file_ref "$kind" "$out"
 
   if resolve_em_secid "$kind" >/dev/null 2>&1; then
     log "  东财 secid: $EMUSE"
@@ -305,9 +341,14 @@ gen_one() {
     warn "  东财 secid 未找到(可跑 --probe 查看候选),继续试其它源"
   fi
 
+  # 拉到了还不算数:过了 months_ok 的校验(月份数、连续、新鲜度、量级)才认,不然接着试下一个源
   try() {
     [[ -n "$SRC" ]] && return 0
-    if "${@:2}"; then SRC="$1"; log "  数据源: $1 ($(wc -l < "$RAW") 条)"; else log "  源失败: $1"; fi
+    local why
+    : > "$RAW"
+    if ! "${@:2}"; then log "  源失败: $1"
+    elif why="$(months_ok "$kind")"; then SRC="$1"; log "  数据源: $1 ($(wc -l < "$RAW") 条)"
+    else log "  源失败: $1 —— $why"; fi
   }
   # 标普先试腾讯:它回到 1960 年,东财只到 1986 年;腾讯不通再按下面的顺序降级
   if [[ "$kind" == spx ]]; then try "tencent" f_tencent "$kind"; fi
@@ -323,31 +364,14 @@ gen_one() {
   try "alphavantage" f_av "$kind"
   try "tiingo"       f_tiingo "$kind"
   try "fred-graph"   f_fredgraph "$kind"
-  [[ -n "$SRC" ]] || { warn "[FAIL] ${ANAME[$kind]} 所有数据源都拉不到"; return 1; }
+  [[ -n "$SRC" ]] || { warn "[FAIL] ${ANAME[$kind]} 所有数据源都拉不到(或过不了校验)"; return 1; }
 
-  # 同月取最后一个交易日;小数位按 DEC(指数 1 位,汇率 4 位)
-  sort "$RAW" | awk -v TM="$thismonth" -v D="${DEC[$kind]}" '
-    { m = substr($1, 1, 7); if (m != TM) v[m] = $2 + 0 }
-    END { f = "%s %." D "f\n"; for (m in v) printf f, m, v[m] }
-  ' | sort > "$TMPD/$kind/months"
-
-  local n lastm lm start end closes today lastv
-  n="$(wc -l < "$TMPD/$kind/months" | tr -d ' ')"
-  [[ "$n" -ge "${MINM[$kind]}" ]] || { warn "[FAIL] ${ANAME[$kind]} 只解析到 $n 个月,疑似源不全"; return 1; }
-  # 页面按 start + 下标推月份(汇率还要和指数逐月对齐),中间缺一个月后面就全错位
-  awk '{ t = substr($1, 1, 4) * 12 + substr($1, 6, 2); if (NR > 1 && t != p + 1) exit 1; p = t }' \
-      "$TMPD/$kind/months" || { warn "[FAIL] ${ANAME[$kind]} 中间有缺月,放弃该源"; return 1; }
-  lastm="$(tail -1 "$TMPD/$kind/months" | cut -d' ' -f1)"
-  lm="$(date -d "$(date +%Y-%m-01) -1 month" +%Y-%m)"
-  [[ "$lastm" == "$thismonth" || "$lastm" == "$lm" ]] || {
-    warn "[FAIL] ${ANAME[$kind]} 最新数据只到 $lastm(预期 $lm),该源疑似停更,放弃"; return 1; }
-  lastv="$(tail -1 "$TMPD/$kind/months" | awk '{print $2}')"
-  awk -v g="$lastv" -v r="${REF[$kind]}" 'BEGIN{exit !(g>r*0.55 && g<r*1.8)}' || {
-    warn "[FAIL] ${ANAME[$kind]} 最新值 $lastv 与参考量级 ${REF[$kind]} 差太远,放弃该源"; return 1; }
-
-  start="$(head -1 "$TMPD/$kind/months" | cut -d' ' -f1)"
-  end="$lastm"
-  closes="$(awk '{printf "%s%s", (NR > 1 ? "," : ""), $2}' "$TMPD/$kind/months")"
+  # $f 是胜出的那个源留下的:try 选中一个源之后,后面的源都不会再跑,也就不会再动它
+  local n start end closes today
+  n="$(wc -l < "$f" | tr -d ' ')"
+  start="$(head -1 "$f" | cut -d' ' -f1)"
+  end="$(tail -1 "$f" | cut -d' ' -f1)"
+  closes="$(awk '{printf "%s%s", (NR > 1 ? "," : ""), $2}' "$f")"
   today="$(date +%F)"
 
   mkdir -p "$(dirname "$out")"
@@ -476,7 +500,7 @@ gen_qqq() {   # $1=输出文件
 # 数组取值全部带 :- 兜底 —— 传错 key 时 set -u 会直接把脚本静默杀掉(踩过)。
 probe_src() {   # probe_src 显示名 函数 [参数...]
   local nm="$1"; shift
-  local why=""
+  local why="" res
   case "$nm" in
     twelvedata)   [[ -n "${NDX_12D9_KEY:-}" ]] && why="(已配key但请求失败/格式不符)" || why="(未配 NDX_12D9_KEY)";;
     alphavantage) [[ -n "${NDX_AV_KEY:-}" ]]   && why="(已配key但请求失败/格式不符)" || why="(未配 NDX_AV_KEY)";;
@@ -493,10 +517,13 @@ probe_src() {   # probe_src 显示名 函数 [参数...]
   else
     "$@" 2>/dev/null || true
   fi
-  if [[ -s "$RAW" ]]; then
+  # 拉到了还要过 months_ok —— 正常更新时过不了校验的源一样会被跳过
+  if [[ ! -s "$RAW" ]]; then
+    printf '  %-13s 不可用%s\n' "$nm" "$why"
+  elif res="$(months_ok "$kind")"; then
     printf '  %-13s OK  %s 条\n' "$nm" "$(wc -l < "$RAW")"
   else
-    printf '  %-13s 不可用%s\n' "$nm" "$why"
+    printf '  %-13s 拉到了但校验不过: %s\n' "$nm" "$res"
   fi
   : > "$RAW"
 }
@@ -511,6 +538,8 @@ probe() {
   declare -A SECKEYVAR=([ndx]="NDX_EMD_SECID" [spx]="SPX_EMD_SECID" [fx]="FX_EMD_SECID")
   for kind in $KINDS; do
     echo "======== ${ANAME[$kind]} ========"
+    use_file_ref "$kind" "${OUTF[$kind]}"
+    mkdir -p "$TMPD/$kind"          # months_ok 往这里写
     echo "-- 东方财富 secid 实测(搜索接口候选 + 内置兜底)"
     local s found=""
     for s in $( { em_suggest "${EMSEARCH[$kind]}" 2>/dev/null || echo "(搜索接口不可达)"

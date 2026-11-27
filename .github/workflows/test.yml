@@ -1,0 +1,28 @@
+name: Test
+
+on:
+  push:
+    branches: [main]
+    paths-ignore:
+      - '*-data.js'           # 只动了数据文件的提交不用跑
+  pull_request:
+  workflow_dispatch:          # 允许在 Actions 页面手动点按钮触发
+
+permissions:
+  contents: read
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v5
+
+      - name: Shell syntax (update_ndx.sh)
+        run: bash -n update_ndx.sh
+
+      # 用 runner 自带的 Node；测试文件逐个列给它（目录参数在不同 Node 版本下行为不一样）
+      - name: Unit tests
+        run: |
+          node --version
+          node --test tests/*.test.cjs

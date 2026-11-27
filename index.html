@@ -4,9 +4,20 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>纳指定投收益计算器</title>
+<script>
+  /* 上次手动选过的深/浅色(见下面「视图切换 & 主题」):赶在首屏绘制之前套上,免得先闪一下系统配色 */
+  (function () {
+    try {
+      var t = localStorage.getItem("qd_theme");
+      if (t === "dark" || t === "light") document.documentElement.setAttribute("data-theme", t);
+    } catch (e) { /* 存储不可用就跟随系统 */ }
+  })();
+</script>
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Instrument+Sans:wght@400;500;600&family=JetBrains+Mono:wght@400;500&display=swap">
+<!-- 字体不挡首屏:先按 media=print 下载(不阻塞渲染),到了再切回 all。
+     谷歌字体连不上时页面照常显示,只是用系统字体(下面的 font-family 都带了兜底) -->
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Instrument+Sans:wght@400;500;600&family=JetBrains+Mono:wght@400;500&display=swap" media="print" onload="this.media='all'">
 <style>
   :root {
     color-scheme: light;
@@ -407,9 +418,9 @@
         <div class="row">
           <select id="s_btwin" style="font:inherit;font-size:14px;width:100%;padding:7px 9px;color:var(--text-primary);background:var(--field);border:1px solid var(--border);border-radius:8px">
             <option value="0">全部历史（自数据起点）</option>
-            <option value="30">最近 30 年</option>
-            <option value="20" selected>最近 20 年</option>
-            <option value="10">最近 10 年</option>
+            <option value="30">最近 30 年的起点</option>
+            <option value="20" selected>最近 20 年的起点</option>
+            <option value="10">最近 10 年的起点</option>
           </select>
         </div>
       </div>
@@ -504,6 +515,9 @@
     if (a >= 1e4) return Math.round(v / 1e4) + "万";
     return String(Math.round(v));
   }
+  // 概率类的百分比(拼进 innerHTML 用,所以尖括号是转义过的):不到 1% 但不是 0 时写「<1%」,
+  // 免得出现「0%」后面却跟着「有 3 个窗口」;接近但没到 100% 同理
+  function pctTxt(p) { return p > 0 && p < 1 ? "&lt;1%" : p > 99 && p < 100 ? "&gt;99%" : p.toFixed(0) + "%"; }
 
   /* ---------------- 输入绑定（数字框 ↔ 滑块） ---------------- */
   var FIELDS = ["lump", "mon", "rate", "fee", "yrs", "stop", "spend"];
@@ -552,7 +566,8 @@
   });
 
   /* ---------------- 参数持久化（localStorage） ---------------- */
-  var SKEY = "qd_calc_state_v1";
+  var SKEY = "qd_calc_state_v1",
+      THEME_KEY = "qd_theme";      // 手动选的深/浅色;<head> 里那段早期脚本读的是同一个键
   function getState() {
     var s = { f: {}, s: {} };
     FIELDS.forEach(function (k) { s.f[k] = el[k].n.value; });
@@ -606,7 +621,7 @@
     } catch (e) { /* 存档坏了就用默认值 */ }
   }
   document.getElementById("b_reset").addEventListener("click", function () {
-    try { localStorage.removeItem(SKEY); } catch (e) {}
+    try { localStorage.removeItem(SKEY); localStorage.removeItem(THEME_KEY); } catch (e) {}   // 深/浅色也回到跟随系统
     try { history.replaceState(null, "", location.pathname); } catch (e) {}   // 去掉分享参数,否则刷新又恢复回来
     location.reload();
   });
@@ -1151,8 +1166,20 @@
   }
 
   /* ---------------- 目标反推 ---------------- */
-  // 期末市值对「每月定投」是线性的(分段、递增、停投都不改变这一点),
-  // 所以试算两个点就能直接解出需要的金额,不用迭代。
+  // 期末市值随「每月定投」只增不减,但不是处处成正比:设了停投后支出、投得太少时账户会在途中被取空,
+  // 期末一直是 0,过了某个金额才开始往上走。所以不按比例推,直接二分找「够到目标的最小金额」(整数元)。
+  // 返回 0 = 不用再投也够;null = 加到再多也够不到(每月定投对结果不起作用)。
+  function solveMon(goal) {
+    var end = function (m) { var p = compute(m).pts; return p[p.length - 1].val; };
+    if (end(0) >= goal) return 0;
+    var lo = 0, hi = 1000;                       // 始终保持 end(lo) < goal <= end(hi)
+    while (end(hi) < goal) { lo = hi; hi *= 2; if (hi > 1e9) return null; }
+    while (hi - lo > 1) {
+      var mid = Math.floor((lo + hi) / 2);
+      if (end(mid) >= goal) hi = mid; else lo = mid;
+    }
+    return hi;
+  }
   var goalMon = null, goalOut = document.getElementById("goalout"), goalBtn = document.getElementById("b_goal");
   function drawGoal(d) {
     var goal = parseFloat(SIMPLE.goal.value) * 1e4, realTxt = "";
@@ -1163,16 +1190,16 @@
       realTxt = "按 " + (d.infl * 100).toFixed(1) + "% 通胀，届时需要 " + yuan(goal) + "；";
     }
     if (goal > 0) {
-      var end = function (m) { var p = compute(m).pts; return p[p.length - 1].val; };
-      var v0 = end(0), slope = (end(1000) - v0) / 1000;
-      if (v0 >= goal) goalOut.textContent = "→ 现有本金（加分段投入）已经够，不用再每月定投";
-      else if (!(slope > 0)) goalOut.textContent = "→ 分段定投已覆盖全部年份，「每月定投」不起作用，请改分段金额";
+      var m = solveMon(goal);
+      if (m === 0) goalOut.textContent = "→ 现有本金（加分段投入）已经够，不用再每月定投";
+      else if (m == null) goalOut.textContent = "→ 分段定投已覆盖全部年份，「每月定投」不起作用，请改分段金额";
       else {
-        goalMon = Math.ceil((goal - v0) / slope);
+        goalMon = m;
         goalOut.textContent = "→ 每月需投 " + goalMon.toLocaleString("zh-CN") + " 元（" + realTxt + "按净年化 " +
           (d.net * 100).toFixed(1) + "%、" + d.yrs + " 年" +
           (d.growthOn ? "，此为第 1 年金额，之后逐年 +" + (d.growth * 100).toFixed(1) + "%" : "") +
-          (d.stop > 0 && d.stop < d.yrs ? "，第 " + d.stop + " 年停投" : "") + "）";
+          (d.stop > 0 && d.stop < d.yrs ? "，第 " + d.stop + " 年停投" +
+            (d.spend > 0 ? "、之后每月取 " + Math.round(d.spend).toLocaleString("zh-CN") + " 元" : "") : "") + "）";
       }
     } else goalOut.textContent = "—— 填个目标，算出每月要投多少";
     goalBtn.classList.toggle("hidden", goalMon == null);
@@ -1326,9 +1353,16 @@
   function liveCachePut(kind, o) {
     try { o.day = todayStr(); localStorage.setItem("qd_live_" + kind, JSON.stringify(o)); } catch (e) {}
   }
+  // 量级校验的参考值:优先取已加载的数据文件 / 内嵌快照的末值 —— 档案里写死的 ref 过几年就过时了,
+  // 只在两者都没有时兜底(与 update_ndx.sh 的 use_file_ref 同一个思路)
+  function refOf(c) {
+    var e = window[c.extName], a = e && e.closes && e.closes.length ? e.closes : c.emb && c.emb.closes,
+        v = a && a.length ? +a[a.length - 1] : NaN;
+    return v > 0 ? v : c.ref;
+  }
   // 月K JSON -> {start,end,closes};校验与 update_ndx.sh 对齐
   function liveParse(kind, json) {
-    var c = IDX[kind], d = json && json.data;
+    var c = IDX[kind], d = json && json.data, ref = refOf(c);
     if (!d || !isArrayLike(d.klines) || String(d.name || "").indexOf(c.emName) < 0) return null;
     var cur = todayStr().slice(0, 7), byM = {};
     for (var i = 0; i < d.klines.length; i++) {
@@ -1342,7 +1376,7 @@
     var lm = new Date(); lm.setDate(1); lm.setMonth(lm.getMonth() - 1);
     var lmStr = lm.getFullYear() + "-" + String(lm.getMonth() + 1).padStart(2, "0");
     if (lastM !== cur && lastM !== lmStr) return null;                   // 末月必须够"新"
-    if (!(lastV > c.ref * 0.55 && lastV < c.ref * 1.8)) return null;     // 量级校验
+    if (!(lastV > ref * 0.55 && lastV < ref * 1.8)) return null;         // 量级校验
     return { start: ms[0], end: lastM, updated: todayStr(), closes: ms.map(function (m) { return byM[m]; }), live: true };
   }
   function isArrayLike(x) { return Object.prototype.toString.call(x) === "[object Array]"; }
@@ -1411,9 +1445,14 @@
 
 
     var stopM = d.stop > 0 ? d.stop * 12 : Infinity,
-        spend = d.spend;
-    var finals = [], lost = 0, beat = 0, worst = null, best = null;
-    var flatFinal = d.pts[d.pts.length - 1].val;     // 同方案的固定利率投影
+        spend = d.spend,
+        taking0 = spend > 0 && stopM < need;      // 这套方案有没有「停投后每月取钱」的阶段
+    var prin = d.pts[d.pts.length - 1].prin;      // 投入与行情无关,固定
+    // 设了停投后支出时,取出去花掉的钱也是这套方案挣到的:盈亏、排名都按 tot =「期末市值 + 途中取出」算,
+    // 不然一路取走几十万、期末余额低于本金的窗口会被判成亏损。没设支出时 tot 就是期末市值。
+    var flatTot = d.pts[d.pts.length - 1].val + (d.drawn || 0);     // 同方案的固定利率投影,同一口径
+    var finals = [], tots = [], lost = 0, beat = 0, worst = null, best = null;
+    var ruin = 0, ruinFirst = null;               // 途中把账户取空的窗口数;最早取空的那个 {m: 第几个月, s: 起点}
     // 途中最大浮亏:每个窗口里「市值 ÷ 已投入本金 − 1」的最低点。
     // 开始取钱之后市值本来就该低于本金,那段不算。
     var inv = [], acc = d.lump, dips = [], deep = null, ends = [];
@@ -1422,47 +1461,52 @@
     for (var k = 0; k < need; k++) { acc += d.payAt(k); inv.push(acc); }
     for (var s = minS; s <= maxS; s++) {
       // one = 对照组:把全部本金(acc)在第一个月一次性投进去,其余规则相同
-      var bal = d.lump, mi = 0, dip = 0, one = acc, oneDip = 0;
+      var bal = d.lump, mi = 0, dip = 0, one = acc, oneDip = 0, drawn = 0, oneDrawn = 0, emptyM = 0;
       // 止盈对照组:pos 持仓市值、cost 持仓成本、cash 已落袋的钱(放货基)
-      var pos = d.lump, cost = d.lump, cash = 0, tpDip = 0, sold = false;
+      var pos = d.lump, cost = d.lump, cash = 0, tpDip = 0, sold = false, tpDrawn = 0;
       for (; mi < need; mi++) {
-        var r = rets[s + mi], pay = d.payAt(mi), taking = d.stop > 0 && mi >= stopM && spend > 0;
+        var r = rets[s + mi], pay = d.payAt(mi), taking = taking0 && mi >= stopM;
         bal = bal * (1 + r) + pay;
         one *= 1 + r;
         if (tp) {
           pos = pos * (1 + r) + pay; cost += pay; cash *= 1 + d.bankM;
           // 浮盈到线:卖出 y,剩下的持仓成本按现价重新起算(要再涨 x 才会再卖)
           if (cost > 0 && pos >= cost * (1 + tp.x)) { cash += pos * tp.y; pos *= 1 - tp.y; cost = pos; sold = true; }
-          if (taking) {              // 取钱先动现金,不够再卖持仓
-            var lack = Math.max(0, spend - cash);
-            cash = Math.max(0, cash - spend);
+          if (taking) {              // 取钱先动现金,不够再卖持仓;都不够就只能取出剩下的
+            var got = Math.min(spend, cash + pos), fromCash = Math.min(cash, got), lack = got - fromCash;
+            cash -= fromCash; tpDrawn += got;
             if (lack > 0) { cost *= pos > lack ? 1 - lack / pos : 0; pos = Math.max(0, pos - lack); }
           }
         }
-        if (taking) { bal = Math.max(0, bal - spend); one = Math.max(0, one - spend); }
-        else {
+        if (taking) {
+          var take = Math.min(spend, bal), take1 = Math.min(spend, one);   // 余额不够时只能取出剩下的
+          bal -= take; drawn += take;
+          one -= take1; oneDrawn += take1;
+          if (bal <= 0 && !emptyM) emptyM = mi + 1;                        // 取空了:记下是第几个月
+        } else {
           if (inv[mi] > 0 && bal / inv[mi] - 1 < dip) dip = bal / inv[mi] - 1;
           if (acc > 0 && one / acc - 1 < oneDip) oneDip = one / acc - 1;
           if (tp && inv[mi] > 0 && (pos + cash) / inv[mi] - 1 < tpDip) tpDip = (pos + cash) / inv[mi] - 1;
         }
       }
+      var tot = bal + drawn;
       ones.push(one);
-      if (one > bal) oneWin++;
+      if (one + oneDrawn > tot) oneWin++;
       if (oneDip < oneDeep) oneDeep = oneDip;
       if (tp) {
         tps.push(pos + cash);
-        if (pos + cash > bal) tpWin++;
+        if (pos + cash + tpDrawn > tot) tpWin++;
         if (tpDip < tpDeep) tpDeep = tpDip;
         if (sold) tpHit++;
       }
       dips.push(dip);
       if (!deep || dip < deep.v) deep = { v: dip, s: s };
-      var prin = d.pts[d.pts.length - 1].prin;       // 投入与行情无关,固定
-      finals.push(bal); ends.push({ v: bal, s: s });
-      if (bal < prin) lost++;
-      if (bal > flatFinal) beat++;
-      if (!worst || bal < worst.val) worst = { val: bal, s: s };
-      if (!best  || bal > best.val)  best  = { val: bal, s: s };
+      finals.push(bal); tots.push(tot); ends.push({ v: tot, s: s });
+      if (tot < prin) lost++;
+      if (tot > flatTot) beat++;
+      if (!worst || tot < worst.tot) worst = { val: bal, tot: tot, s: s };
+      if (!best  || tot > best.tot)  best  = { val: bal, tot: tot, s: s };
+      if (emptyM) { ruin++; if (!ruinFirst || emptyM < ruinFirst.m) ruinFirst = { m: emptyM, s: s }; }
     }
     function median(a) {
       a.sort(function (x, y) { return x - y; });
@@ -1477,9 +1521,12 @@
       one: acc > d.lump ? { winPct: oneWin / n * 100, dip: oneDeep, med: median(ones) } : null,
       // 止盈对照(规则见 tpRule);和「一直拿着」逐个窗口比
       tp: tp ? { x: tp.x, y: tp.y, winPct: tpWin / n * 100, hitPct: tpHit / n * 100, dip: tpDeep, med: median(tps) } : null,
+      // 设了停投后支出才有:途中把账户取空的窗口占比、个数,以及最早取空的那个窗口
+      ruin: taking0 ? { pct: ruin / n * 100, n: ruin, first: ruinFirst } : null,
       rets: rets, inv: inv, medS: ends[Math.floor(n / 2)].s,     // 画曲线用:月收益、逐月累计本金、中位窗口的起点
       dipWorst: deep, dipMed: median(dips),
-      count: n, med: median(finals), worst: worst, best: best,
+      // med、worst.val、best.val 是期末市值;medTot、.tot 是「期末市值 + 途中取出」(没设支出时两者相等)
+      count: n, med: median(finals), medTot: median(tots), worst: worst, best: best,
       lossPct: lost / n * 100, beatPct: beat / n * 100,
       minS: minS, maxS: maxS, need: need,
       winYrs: winYrs, divOn: divOn,
@@ -1489,19 +1536,23 @@
   function drawCmp(d, cur, curBt) {
     var prin = d.pts[d.pts.length - 1].prin;
     var pc = function (v) { return (v >= 0 ? "＋" : "−") + Math.abs(v * 100).toFixed(0) + "%"; };
-    var h = "<table><thead><tr><th>标的</th><th>数据起点</th><th>起点数</th><th>中位数结局</th><th>最惨</th><th>最好</th><th>亏损概率</th><th>途中最大浮亏</th></tr></thead><tbody>";
+    var tk = d.spend > 0 && d.stop > 0 && d.stop < d.yrs;      // 有「停投后每月取钱」的阶段:多一列耗尽概率
+    var h = "<table><thead><tr><th>标的</th><th>数据起点</th><th>起点数</th><th>中位数结局</th><th>最惨</th><th>最好</th><th>亏损概率</th><th>途中最大浮亏</th>" +
+            (tk ? "<th>途中耗尽概率</th>" : "") + "</tr></thead><tbody>";
     Object.keys(IDX).forEach(function (k) {
       var r = k === cur ? curBt : backtest(d, k);
       h += "<tr" + (k === cur ? ' style="font-weight:600"' : "") + "><td>" + IDX[k].name + "</td>";
-      if (r.err) { h += '<td colspan="7" style="text-align:left;font-family:var(--font-ui)">' + r.brief + "</td></tr>"; return; }
-      var rel = function (v) { return yuan(v) + "（" + pc(prin > 0 ? v / prin - 1 : 0) + "）"; };
-      h += "<td>" + r.data.start + "</td><td>" + r.count + "</td><td>" + rel(r.med) + "</td><td>" + rel(r.worst.val) +
-           "</td><td>" + rel(r.best.val) + "</td><td>" + r.lossPct.toFixed(0) + "%</td><td>" +
-           (r.dipWorst.v < 0 ? pc(r.dipWorst.v) : "未跌破") + "</td></tr>";
+      if (r.err) { h += '<td colspan="' + (tk ? 8 : 7) + '" style="text-align:left;font-family:var(--font-ui)">' + r.brief + "</td></tr>"; return; }
+      // 显示的是期末市值;括号里的盈亏按「期末市值 + 途中取出」相对本金算
+      var rel = function (val, tot) { return yuan(val) + "（" + pc(prin > 0 ? tot / prin - 1 : 0) + "）"; };
+      h += "<td>" + r.data.start + "</td><td>" + r.count + "</td><td>" + rel(r.med, r.medTot) + "</td><td>" + rel(r.worst.val, r.worst.tot) +
+           "</td><td>" + rel(r.best.val, r.best.tot) + "</td><td>" + pctTxt(r.lossPct) + "</td><td>" +
+           (r.dipWorst.v < 0 ? pc(r.dipWorst.v) : "未跌破") + "</td>" + (tk ? "<td>" + pctTxt(r.ruin.pct) + "</td>" : "") + "</tr>";
     });
     document.getElementById("btcmp").innerHTML = h + "</tbody></table>";
     document.getElementById("btcmpnote").textContent =
-      "同一套方案、同样的回测窗口、分红和汇率选项。括号里是相对本金的盈亏。各标的数据起点不同（QQQ 1999 年才上市），选「全部历史」时覆盖的年代不一样，选「最近 N 年」才是同期对比。";
+      "同一套方案、同样的回测窗口、分红和汇率选项。括号里是相对本金的盈亏" + (tk ? "（已算上途中取出的钱）" : "") +
+      "。各标的数据起点不同（QQQ 1999 年才上市），选「全部历史」时覆盖的年代不一样，选「最近 N 年的起点」才是同期对比。";
   }
 
   /* ---- 回测曲线:最好 / 中位 / 最惨三个窗口的账户走势 ---- */
@@ -1608,23 +1659,32 @@
       return;
     }
     var key = idxKey(), prof = IDX[key], data = bt.data;
-    var prin = d.pts[d.pts.length - 1].prin;
-    // 相对本金的盈亏比,如 "＋18%" / "−6%"
+    var last = d.pts[d.pts.length - 1], prin = last.prin;
+    // 相对本金的盈亏比,如 "＋18%" / "−6%"。传的是「期末市值 + 途中取出」:取出去花掉的钱也算回报
     function pct(v) {
       var d0 = prin > 0 ? v / prin - 1 : 0;
       return (d0 >= 0 ? "＋" : "−") + Math.abs(d0 * 100).toFixed(0) + "%";
     }
+    // 设了停投后支出时,在盈亏后面注明取出了多少(前面的盈亏已经把它算进去了)
+    function took(val, tot) { return tot - val >= 1 ? "（已算上取出的 " + yuan(tot - val) + "）" : ""; }
     var tiles = [
-      ["中位数结局", yuan(bt.med), (bt.count === 1 ? "仅 1 个完整窗口；" : "相对本金；") + pct(bt.med), bt.med >= prin ? "up" : "down"],
-      ["最惨窗口", yuan(bt.worst.val), "起于 " + idxLabel(data.start, bt.worst.s) + "，" + pct(bt.worst.val), "down"],
-      ["最好窗口", yuan(bt.best.val), "起于 " + idxLabel(data.start, bt.best.s) + "，" + pct(bt.best.val), "up"],
-      ["亏损概率", bt.lossPct.toFixed(0) + "%", "共 " + bt.count + " 个起点，本金 " + yuan(prin), bt.lossPct > 0 ? "down" : "up"],
+      ["中位数结局", yuan(bt.med), (bt.count === 1 ? "仅 1 个完整窗口；" : "相对本金；") + pct(bt.medTot) + took(bt.med, bt.medTot), bt.medTot >= prin ? "up" : "down"],
+      ["最惨窗口", yuan(bt.worst.val), "起于 " + idxLabel(data.start, bt.worst.s) + "，" + pct(bt.worst.tot) + took(bt.worst.val, bt.worst.tot), "down"],
+      ["最好窗口", yuan(bt.best.val), "起于 " + idxLabel(data.start, bt.best.s) + "，" + pct(bt.best.tot) + took(bt.best.val, bt.best.tot), "up"],
+      ["亏损概率", pctTxt(bt.lossPct), "共 " + bt.count + " 个起点，本金 " + yuan(prin) +
+        (bt.ruin ? "；期末市值加上取出的钱仍不到本金才算亏" : ""), bt.lossPct > 0 ? "down" : "up"],
       ["途中最大浮亏", bt.dipWorst.v < 0 ? "−" + (-bt.dipWorst.v * 100).toFixed(0) + "%" : "未跌破本金",
         bt.dipWorst.v < 0 ? "起于 " + idxLabel(data.start, bt.dipWorst.s) + "；半数窗口至少亏过 " +
           (-bt.dipMed * 100).toFixed(0) + "%" : "所有窗口市值始终高于已投本金", bt.dipWorst.v < 0 ? "down" : "up"],
       ["跑赢预期(" + (readVal("rate") - readVal("fee")).toFixed(1) + "%)", bt.beatPct.toFixed(0) + "%",
-        "对照固定利率投影 " + yuan(d.pts[d.pts.length - 1].val), ""],
+        "对照固定利率投影 " + yuan(last.val) + (bt.ruin ? "（两边都算上取出的钱）" : ""), ""],
     ];
+    // 设了停投后支出:最要紧的是钱会不会在期满前被取空,紧跟在「亏损概率」后面
+    if (bt.ruin) tiles.splice(4, 0, ["途中耗尽概率", pctTxt(bt.ruin.pct),
+      bt.ruin.n ? bt.ruin.n + " 个窗口没撑到期满；最早在第 " + Math.ceil(bt.ruin.first.m / 12) + " 年取空（起于 " +
+                  idxLabel(data.start, bt.ruin.first.s) + "）"
+                : "第 " + d.stop + " 年起每月取 " + Math.round(d.spend).toLocaleString("zh-CN") + " 元，所有窗口都撑到了期满",
+      bt.ruin.n ? "down" : "up"]);
     var h = "";
     if (bt.one) tiles.push(["若一次性投入", bt.one.winPct.toFixed(0) + "% 窗口更优",
       "把 " + yuan(prin) + " 一开始全投；中位数 " + yuan(bt.one.med) + "，途中最大浮亏 −" + (-bt.one.dip * 100).toFixed(0) + "%", ""]);
@@ -1645,14 +1705,17 @@
       (key === "qqq" ? "，数据更新于 " + data.updated :
         data.live ? "，本次打开页面时从东方财富实时获取" :
         data.ext ? "，每日自动更新" + (data.updated ? "，最近更新 " + data.updated : "") : "，内置快照") + "），" +
-      (bt.winYrs ? "只取最近 " + bt.winYrs + " 年内开始" : "从任意月份") + "起投满 " + d.yrs +
-      " 年，滚动共 " + bt.count + " 个起点。" + (key === "qqq"
+      // 写出实际的起投月份范围:「最近 N 年」指的是最晚的那 N 年起点,而最晚的起点本身要留够投资年限
+      (bt.winYrs && bt.minS > 0 ? "起投月份只取最近的 " + bt.winYrs + " 年：" : "起投月份 ") +
+      idxLabel(data.start, bt.minS) + " ~ " + idxLabel(data.start, bt.maxS) +
+      "（再晚开始就凑不满 " + d.yrs + " 年），各投满 " + d.yrs + " 年，滚动共 " + bt.count + " 个起点。" + (key === "qqq"
         ? (bt.divOn ? "使用含分红再投资的复权收盘价。" : "使用拆股调整收盘价，不含分红。")
         : "分红" + (bt.divOn ? "按 " + (prof.yld * 100).toFixed(1) + "%/年 加回" : "未计") +
           "（" + prof.name + "长期股息率约 " + (prof.yld * 100).toFixed(1) + "%）；价格为真值，误差主要来自分红估计与费率近似。");
     if (bt.fxOn) note.textContent += "已计入汇率：每月点位先按当月美元兑人民币汇率折成人民币，再算涨跌；汇率只从 1994 年并轨算起（更早的官方汇率与市场价脱节），所以数据起点最早是 1994-01。";
+    if (bt.ruin) note.textContent += "设了停投后每月支出：格子里的大数字是期末账户里还剩多少；盈亏、亏损概率和排名按「期末市值＋途中取出的钱」算——取出去花掉的也是这套方案挣到的。";
     note.textContent += "「途中最大浮亏」是持有期间账户市值相对已投入本金的最低点" +
-      (d.stop > 0 && d.spend > 0 ? "（只算开始取钱之前）" : "") + "——期末赚钱的窗口，中途也可能深度被套。";
+      (bt.ruin ? "（只算开始取钱之前）" : "") + "——期末赚钱的窗口，中途也可能深度被套。";
     since.textContent = key === "spx"
       ? "提示：同一起点上标普500 的结局比纳指温和（波动小、回撤浅），代价是长期收益也低一截——来回切一下这两个选项，就是「波动换收益」的直观版本。"
       : "提示：「最惨窗口」基本都是 1999–2001、2007、2021 这类山顶起投——同一起点差异比想象的大得多，定投的意义正是摊平它。";
@@ -1673,14 +1736,17 @@
   });
 
   // 默认不打 data-theme 标记，让「跟随系统」正常生效；
-  // 只有用户点了按钮才落一个显式标记（两个方向都要能压过系统设置）
+  // 只有用户点了按钮才落一个显式标记（两个方向都要能压过系统设置），并记进 localStorage，
+  // 下次打开由 <head> 里的早期脚本先套上。「清空恢复默认」会把它一起清掉，回到跟随系统。
   var tb = document.getElementById("theme"), mq = window.matchMedia("(prefers-color-scheme: dark)");
   function resolved() {
     return document.documentElement.getAttribute("data-theme") || (mq.matches ? "dark" : "light");
   }
   function syncLabel() { tb.textContent = resolved() === "dark" ? "切换浅色" : "切换深色"; }
   tb.addEventListener("click", function () {
-    document.documentElement.setAttribute("data-theme", resolved() === "dark" ? "light" : "dark");
+    var next = resolved() === "dark" ? "light" : "dark";
+    document.documentElement.setAttribute("data-theme", next);
+    try { localStorage.setItem(THEME_KEY, next); } catch (e) { /* 无痕模式等:这次照样生效,只是记不住 */ }
     syncLabel(); render();
   });
   mq.addEventListener("change", function () { syncLabel(); render(); });
@@ -1697,8 +1763,20 @@
     drawStop(d);
     drawDrawdown(d);
     drawTable(d);
-    drawBacktest(d);
+    drawBacktestSafe(d);
     if (!document.getElementById("chartview").classList.contains("hidden")) drawChart(d);
+  }
+  // 回测是最复杂的一块,还依赖每天自动生成的数据文件:它万一出错,只在回测卡片里报出来,
+  // 不连累上面的汇总、图表和表格
+  function drawBacktestSafe(d) {
+    try { drawBacktest(d); }
+    catch (e) {
+      document.getElementById("btgrid").innerHTML = "";
+      document.getElementById("btchart").classList.add("hidden");
+      document.getElementById("btnote").textContent =
+        "回测这一块出错了（" + (e && e.message ? e.message : e) + "），上面的测算结果不受影响。";
+      if (window.console && console.error) console.error(e);
+    }
   }
 
   // 只监听 window.resize 会漏掉几种情况：首次布局尚未定稿、滚动条出现导致卡片变窄、
@@ -1707,7 +1785,7 @@
   function redrawIfVisible() {
     var d = compute();
     if (!document.getElementById("chartview").classList.contains("hidden")) drawChart(d);
-    drawBacktest(d);      // 回测曲线的宽度也跟着卡片走
+    drawBacktestSafe(d);  // 回测曲线的宽度也跟着卡片走
   }
   if (window.ResizeObserver) {
     var lastW = 0;

@@ -29,10 +29,12 @@ ndx-calc/
 ├── qqq-data.js                     # QQQ 月末收盘价及复权收盘价（脚本生成，勿手改）
 ├── fx-data.js                      # 美元兑人民币月末汇率（脚本生成，勿手改）
 ├── ndx.conf                        # API key 配置（可选，不要提交）
+├── tests/                          # 回测逻辑的单元测试 + 页面脚本的语法检查（node --test）
 ├── .gitignore
 └── .github/
     └── workflows/
-        └── update-data.yml         # 每日自动更新数据的 workflow
+        ├── update-data.yml         # 每日自动更新数据的 workflow
+        └── test.yml                # push 后自动跑 tests/ 和 update_ndx.sh 的语法检查
 ```
 
 **要点：**
@@ -211,7 +213,7 @@ jobs:
   数据源: eastmoney (488 条)
 [OK] 标普500 1986-01 ~ 2026-08 共 488 个月 -> /.../spx-data.js
 == QQQ ==
-  数据源: yahoo1 (…… 条)
+  数据源: tiingo (…… 条)
 [OK] QQQ 1999-03 ~ 2026-08 共 330 个月 -> /.../qqq-data.js
 == 美元兑人民币 ==
   源失败: eastmoney
@@ -219,13 +221,19 @@ jobs:
 [OK] 美元兑人民币 1985-01 ~ 2026-08 共 500 个月 -> /.../fx-data.js
 ```
 
+各段用的是哪个数据源取决于当时哪个先通，不一定和上面一样，每段最后有 `[OK]` 就行。
+
 汇率那段的 `源失败: eastmoney` 和「东财 secid 未找到」是正常的：脚本没有内置东财的汇率代码，直接走 FRED。
 
 QQQ 抓的是日线，所以「条」数有六千多，写进文件的是下面那行的月份数。
 
+**某一行是 `源失败: xxx —— 原因`：** 这个源拉到了数据，但没过校验（月份数太少、中间缺月、最新月份太旧、数值量级不对），脚本会接着试下一个源，不用管。
+
 **如果全是 `源失败`：** 配 `NDX_FRED_KEY` 后重试。
 
-**只有 QQQ 失败：** QQQ 只走 Yahoo，被限流时会打 `源失败: yahoo1 / yahoo2`。这种情况保留旧的 `qqq-data.js`，不影响另外两个，第二天的定时任务会再试——月线数据一个月成功一次就够。
+**只有 QQQ 失败：** QQQ 在 Actions 上靠 Tiingo（要配 `NDX_TI_KEY`）。没配或 Tiingo 失败时会改试 Yahoo，但 Yahoo 对 GitHub 机房 IP 返回 429，基本会打出 `源失败: yahoo1 / yahoo2`。这种情况保留旧的 `qqq-data.js`，不影响另外几个，第二天的定时任务会再试——月线数据一个月成功一次就够。
+
+**某个标的一直报「与参考量级 … 差太远」：** 量级校验拿现有数据文件的最后一个值当参考（新值要落在它的 0.55~1.8 倍之间），所以指数涨跌多年也不用改脚本。万一某个数据文件本身错了、新数据因此一直被拒，把那个文件删掉再跑一次，脚本会退回用内置的参考值。
 
 ---
 
@@ -670,6 +678,13 @@ git push
 ```
 
 Cloudflare Pages 自动部署；自有服务器等 cron 拉取（或手动 `git pull`）。
+
+每次 push 之后，**Actions → Test** 会自动跑一遍 `tests/`（回测逻辑的单元测试、`index.html` 里脚本的语法检查）和 `update_ndx.sh` 的语法检查。它不拦部署——Cloudflare 照样会上线——只是让你第一时间知道有没有把东西改坏。本机有 Node 的话，push 之前也可以自己跑：
+
+```bash
+node --test tests/*.test.cjs
+bash -n update_ndx.sh
+```
 
 ### 8.4 定期检查
 
