@@ -1570,7 +1570,7 @@
       positions = [value * weights[0], value * weights[1]]; cash = value * weights[2];
     }
     return { positions: positions, cash: cash, value: value, marketValue: marketValue,
-      return: startValue > 0 ? marketValue / startValue : 1 };
+      return: startValue > 0 ? marketValue / startValue - 1 : 0 };
   }
 
   function mixInitial(value, weights) {
@@ -1967,6 +1967,38 @@
     }
     return out;
   }
+  function btMixPath(d, bt, s, strategy) {
+    var data = bt.data, weights = data.weights, mode = data.rebal, totalPay = 0;
+    for (var k = 0; k < d.yrs * 12; k++) totalPay += d.payAt(k);
+    var initial = strategy === "one" ? d.lump + totalPay : d.lump;
+    var state = mixInitial(initial, weights), out = [initial], cost = initial, tpCash = 0, sold = false;
+    for (var mi = 0; mi < d.yrs * 12; mi++) {
+      var pay = strategy === "one" ? 0 : d.payAt(mi), idx = s + mi;
+      var step = mixStep(state.positions, state.cash, [data.assetRets[0][idx], data.assetRets[1][idx]],
+        weights, mode, pay, mi + 1, data.cashRate);
+      state = { positions: step.positions, cash: step.cash };
+      var cash = state.cash;
+      if (strategy === "tp" && d.tp) {
+        cost += pay; tpCash *= 1 + d.bankM;
+        if (cost > 0 && step.value >= cost * (1 + d.tp.x)) {
+          var proceeds = (step.value - tpCash) * d.tp.y, keep = step.value > 0 ? 1 - proceeds / step.value : 0;
+          state.positions = state.positions.map(function (v) { return v * keep; });
+          state.cash *= keep; tpCash += proceeds; cost = step.value - proceeds; sold = true;
+        }
+      }
+      var value = strategy === "tp" ? state.positions[0] + state.positions[1] + state.cash + tpCash : step.value;
+      if (d.stop > 0 && mi >= d.stop * 12 && d.spend > 0) {
+        var spend = d.spendAt ? d.spendAt(mi) : d.spend, take = Math.min(spend, value);
+        if (strategy === "tp") {
+          var fromCash = Math.min(tpCash, take); tpCash -= fromCash;
+          if (take > fromCash) mixWithdraw(state, take - fromCash);
+          value = state.positions[0] + state.positions[1] + state.cash + tpCash;
+        } else { mixWithdraw(state, take); value -= take; }
+      }
+      out.push(value);
+    }
+    return out;
+  }
   function drawBtChart(d, bt, data) {
     while (btSvg.firstChild) btSvg.removeChild(btSvg.firstChild);
     var need = bt.need, top = 0;
@@ -1977,7 +2009,7 @@
     if (showOne.checked && bt.one) lines.push({ nm: "一次性", s: bt.medS, strategy: "one" });
     if (showTp.checked && bt.tp) lines.push({ nm: "止盈", s: bt.medS, strategy: "tp" });
     lines.forEach(function (l) {
-      l.p = btPath(d, bt.rets, l.s, l.strategy); l.from = idxLabel(data.start, l.s);
+      l.p = data.weights ? btMixPath(d, bt, l.s, l.strategy) : btPath(d, bt.rets, l.s, l.strategy); l.from = idxLabel(data.start, l.s);
       l.p.forEach(function (v) { if (v > top) top = v; });
     });
     var prin = [d.lump].concat(bt.inv), flat = d.pts.map(function (p) { return p.val; });

@@ -91,6 +91,28 @@ test('annualized cash-flow return recovers a known monthly growth rate', () => {
   assert.ok(Math.abs(result.irr.med - (1.01 ** 12 - 1)) < 1e-10);
 });
 
+test('portfolio return is a rate, so the chart does not add one twice', () => {
+  const stepStart = html.indexOf('  function mixStep(');
+  const stepEnd = html.indexOf('  function mixInitial(', stepStart);
+  const mixStep = vm.runInNewContext(html.slice(stepStart, stepEnd) + '\nmixStep');
+  const result = mixStep([60, 30], 10, [1.02, 1], [0.6, 0.3, 0.1], 'new', 0, 1, 1);
+  assert.ok(Math.abs(result.return - 0.012) < 1e-12);
+  assert.ok(Math.abs(100 * (1 + result.return) - 101.2) < 1e-12);
+});
+
+test('portfolio chart path compounds constituent returns instead of monthly multipliers', () => {
+  const start = html.indexOf('  function mixStep(');
+  const end = html.indexOf('  function drawBtChart(', html.indexOf('  function btPath('));
+  const helpers = html.slice(start, html.indexOf('  /* ---- 三个标的并排对比'));
+  const chart = html.slice(html.indexOf('  function btPath('), end);
+  const btMixPath = vm.runInNewContext(helpers + chart + '\nbtMixPath', {});
+  const returns = [Array(12).fill(1.02), Array(12).fill(1)];
+  const bt = { data: { weights: [0.6, 0.3, 0.1], rebal: 'new', cashRate: 1, assetRets: returns } };
+  const path = btMixPath({ yrs: 1, lump: 100, payAt: () => 0 }, bt, 0);
+  assert.equal(path.length, 13);
+  assert.ok(path[12] > 100 && path[12] < 120, `unexpected portfolio value ${path[12]}`);
+});
+
 test('peak drawdown ignores deposits; annual bands interpolate across all windows', () => {
   const drawdown = run([100, 150, ...Array(11).fill(75)], { payAt: () => 1000 });
   assert.equal(drawdown.ddWorst.v, -0.5);
