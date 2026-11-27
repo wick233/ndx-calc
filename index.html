@@ -37,6 +37,9 @@
     --series-2:       #eb6834;  /* 投资收益 */
     --good:           #006300;
     --critical:       #d03b3b;
+    --scenario-best:  #16835d;
+    --scenario-mid:   #3976b7;
+    --scenario-worst: #c14e4e;
     --field:          #ffffff;
   }
   @media (prefers-color-scheme: dark) {
@@ -54,6 +57,9 @@
       --series-2:       #d95926;
       --good:           #0ca30c;
       --critical:       #d03b3b;
+      --scenario-best:  #43c49a;
+      --scenario-mid:   #78aef0;
+      --scenario-worst: #ef7777;
       --field:          #232322;
     }
   }
@@ -71,6 +77,9 @@
     --series-2:       #d95926;
     --good:           #0ca30c;
     --critical:       #d03b3b;
+    --scenario-best:  #43c49a;
+    --scenario-mid:   #78aef0;
+    --scenario-worst: #ef7777;
     --field:          #232322;
   }
 
@@ -184,6 +193,15 @@
   .dd-item .k { font-size: 12px; color: var(--text-secondary); }
   .dd-item .v { font-size: 20px; font-weight: 600; margin-top: 3px; }
   .dd-item .m { font-size: 11px; margin-top: 3px; }
+  .dd-item.scenario-best { border-top: 3px solid var(--scenario-best); }
+  .dd-item.scenario-mid { border-top: 3px solid var(--scenario-mid); }
+  .dd-item.scenario-worst { border-top: 3px solid var(--scenario-worst); }
+  .dd-item.scenario-best .k::before, .dd-item.scenario-mid .k::before, .dd-item.scenario-worst .k::before {
+    content: ""; display: inline-block; width: 7px; height: 7px; border-radius: 50%; margin-right: 6px; vertical-align: 1px;
+  }
+  .dd-item.scenario-best .k::before { background: var(--scenario-best); }
+  .dd-item.scenario-mid .k::before { background: var(--scenario-mid); }
+  .dd-item.scenario-worst .k::before { background: var(--scenario-worst); }
   .up { color: var(--good); } .down { color: var(--critical); }
 
   /* ---- 分段定投 ---- */
@@ -2003,7 +2021,11 @@
     while (btSvg.firstChild) btSvg.removeChild(btSvg.firstChild);
     var need = bt.need, top = 0;
     // 三条线同一个颜色,靠线尾文字区分;中位线加粗
-    var lines = [{ nm: "最好", s: bt.best.s }, { nm: "中位", s: bt.medS }, { nm: "最惨", s: bt.worst.s }];
+    var lines = [
+      { nm: "最好", s: bt.best.s, color: "var(--scenario-best)" },
+      { nm: "中位", s: bt.medS, color: "var(--scenario-mid)" },
+      { nm: "最惨", s: bt.worst.s, color: "var(--scenario-worst)" }
+    ];
     var showOne = document.getElementById("bt_show_one"), showTp = document.getElementById("bt_show_tp");
     showOne.disabled = !bt.one; showTp.disabled = !bt.tp;
     if (showOne.checked && bt.one) lines.push({ nm: "一次性", s: bt.medS, strategy: "one" });
@@ -2045,7 +2067,7 @@
     btSvg.appendChild(mk("path", { d: P(flat, 12), fill: "none", stroke: "var(--text-muted)", "stroke-width": 1.5, "stroke-dasharray": "4 4" }));
     btSvg.appendChild(mk("path", { d: P(prin, 1), fill: "none", stroke: "var(--series-1)", "stroke-width": 1.5 }));
     lines.forEach(function (l) {
-      btSvg.appendChild(mk("path", { d: P(l.p, 1), fill: "none", stroke: "var(--series-2)",
+      btSvg.appendChild(mk("path", { d: P(l.p, 1), fill: "none", stroke: l.color || "var(--series-2)",
         "stroke-width": l.nm === "中位" ? 2.5 : 1.5, "stroke-linejoin": "round",
         opacity: l.nm === "中位" || l.strategy ? 1 : 0.55,
         "stroke-dasharray": l.strategy === "one" ? "8 3" : l.strategy === "tp" ? "2 3" : "none" }));
@@ -2061,8 +2083,9 @@
       labs[i].ly = Math.min(labs[i].ly, i === labs.length - 1 ? Y(0) + 4 : labs[i + 1].ly - 14);
     }
     labs.forEach(function (a) {
-      btSvg.appendChild(mk("circle", { cx: X(need), cy: a.y, r: 4, fill: "var(--series-2)", stroke: "var(--surface-1)", "stroke-width": 2 }));
-      var t = mk("text", { x: X(need) + 9, y: a.ly, fill: "var(--text-secondary)", "font-size": 11 });
+      var line = lines.find(function (l) { return l.nm === a.txt.split(" ")[0]; });
+      btSvg.appendChild(mk("circle", { cx: X(need), cy: a.y, r: 4, fill: line && line.color || "var(--series-2)", stroke: "var(--surface-1)", "stroke-width": 2 }));
+      var t = mk("text", { x: X(need) + 9, y: a.ly, fill: line && line.color || "var(--text-secondary)", "font-size": 11 });
       t.textContent = a.txt; btSvg.appendChild(t);
     });
 
@@ -2078,7 +2101,7 @@
                "</span><b>" + yuan(v) + "</b></div>";
       };
       var h = '<div class="t">第 ' + Math.floor(m / 12) + " 年 " + (m % 12) + " 个月</div>";
-      lines.forEach(function (l) { h += row("var(--series-2)", l.nm + "（起于 " + l.from + "）", l.p[m]); });
+      lines.forEach(function (l) { h += row(l.color || "var(--series-2)", l.nm + "（起于 " + l.from + "）", l.p[m]); });
       btTip.innerHTML = h + '<div class="hr"></div>' + row("var(--series-1)", "累计投入本金", prin[m]);
       btTip.classList.add("on");
       var left = X(m) + 12;
@@ -2131,9 +2154,9 @@
     // 设了停投后支出时,在盈亏后面注明取出了多少(前面的盈亏已经把它算进去了)
     function took(val, tot) { return tot - val >= 1 ? "（已算上取出的 " + yuan(tot - val) + "）" : ""; }
     var tiles = [
-      ["中位数结局", yuan(bt.med), (bt.count === 1 ? "仅 1 个完整窗口；" : "相对本金；") + pct(bt.medTot) + took(bt.med, bt.medTot), bt.medTot >= prin ? "up" : "down"],
-      ["最惨窗口", yuan(bt.worst.val), "起于 " + idxLabel(data.start, bt.worst.s) + "，" + pct(bt.worst.tot) + took(bt.worst.val, bt.worst.tot), "down"],
-      ["最好窗口", yuan(bt.best.val), "起于 " + idxLabel(data.start, bt.best.s) + "，" + pct(bt.best.tot) + took(bt.best.val, bt.best.tot), "up"],
+      ["中位数结局", yuan(bt.med), (bt.count === 1 ? "仅 1 个完整窗口；" : "相对本金；") + pct(bt.medTot) + took(bt.med, bt.medTot), bt.medTot >= prin ? "up" : "down", "scenario-mid"],
+      ["最惨窗口", yuan(bt.worst.val), "起于 " + idxLabel(data.start, bt.worst.s) + "，" + pct(bt.worst.tot) + took(bt.worst.val, bt.worst.tot), "down", "scenario-worst"],
+      ["最好窗口", yuan(bt.best.val), "起于 " + idxLabel(data.start, bt.best.s) + "，" + pct(bt.best.tot) + took(bt.best.val, bt.best.tot), "up", "scenario-best"],
       ["亏损概率", pctTxt(bt.lossPct), "共 " + bt.count + " 个起点，本金 " + yuan(prin) +
         (bt.ruin ? "；期末市值加上取出的钱仍不到本金才算亏" : ""), bt.lossPct > 0 ? "down" : "up"],
       ["途中最大浮亏", bt.dipWorst.v < 0 ? "−" + (-bt.dipWorst.v * 100).toFixed(0) + "%" : "未跌破本金",
@@ -2164,7 +2187,7 @@
         (-bt.tp.dip * 100).toFixed(0) + "%，" + bt.tp.hitPct.toFixed(0) + "% 的窗口触发过", ""]);
     }
     tiles.forEach(function (t) {
-      h += '<div class="dd-item"><div class="k">' + t[0] + '</div><div class="v ' + t[3] + '">' +
+      h += '<div class="dd-item ' + (t[4] || "") + '"><div class="k">' + t[0] + '</div><div class="v ' + t[3] + '">' +
            t[1] + '</div><div class="m">' + t[2] + "</div></div>";
     });
     grid.innerHTML = h;
