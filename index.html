@@ -343,6 +343,7 @@
       <button class="btn" id="b_share" type="button" style="margin-left:auto">复制分享链接</button>
       <button class="btn" id="b_reset" type="button">清空恢复默认</button>
     </div>
+    <p class="note" id="share-note" aria-live="polite"></p>
   </div>
 
   <!-- 结果 -->
@@ -464,6 +465,16 @@
           </select>
         </div>
       </div>
+      <div class="ctrl">
+        <label for="s_rebalance">组合再平衡</label>
+        <div class="row">
+          <select id="s_rebalance" style="font:inherit;font-size:14px;width:100%;padding:7px 9px;color:var(--text-primary);background:var(--field);border:1px solid var(--border);border-radius:8px">
+            <option value="1" selected>每月恢复目标比例</option>
+            <option value="3">每季度恢复目标比例</option>
+            <option value="new">仅用新增资金调整比例</option>
+          </select>
+        </div>
+      </div>
     </div>
     <!-- 止盈对照：按规则卖出的方案，和「一直拿着」逐个窗口比（规则见 tpRule，计算在 backtest 里） -->
     <div class="optrow">
@@ -475,6 +486,7 @@
       <span class="unit">% 持仓 —— 每月看一次；卖出的钱转货基（1.5%/年）不再买回，剩余持仓的成本重新起算，定投照常</span>
     </div>
     <p class="bt-note" id="btnote"></p>
+    <p class="bt-note" id="btmeta"></p>
     <div class="dd" id="btgrid"></div>
 
     <!-- 三个代表性窗口的账户曲线（逻辑见 drawBtChart） -->
@@ -617,6 +629,7 @@
     btwin: document.getElementById("s_btwin"),
     btdiv: document.getElementById("s_btdiv"),
     btfx: document.getElementById("s_btfx"),
+    rebalance: document.getElementById("s_rebalance"),
     tpOn: document.getElementById("k_tp"),
     tpx: document.getElementById("n_tpx"),
     tpy: document.getElementById("n_tpy"),
@@ -644,10 +657,14 @@
     });
   });
   Object.keys(SIMPLE).forEach(function (k) {
-    SIMPLE[k].addEventListener("input", function () { render(); saveState(); });
+    var changed = function () { render(); saveState(); };
+    var type = SIMPLE[k].type;
+    SIMPLE[k].addEventListener(type === "select-one" || type === "checkbox" ? "change" : "input", changed);
+    if (type !== "select-one" && type !== "checkbox") SIMPLE[k].addEventListener("change", changed);
   });
 
   /* ---------------- 参数持久化（localStorage） ---------------- */
+  var MODEL_VERSION = 2;
   var SKEY = "qd_calc_state_v1",
       THEME_KEY = "qd_theme";      // 手动选的深/浅色;<head> 里那段早期脚本读的是同一个键
   function getState() {
@@ -670,8 +687,19 @@
     if (!m) return null;
     try { return decodeURIComponent(m[1]); } catch (e) { return null; }
   }
+  function shareDataStamp() {
+    var stamp = {};
+    ["ndx", "spx", "qqq"].forEach(function (k) {
+      var d = idxData(k);
+      stamp[k] = d ? { start: d.start, end: d.end, updated: d.updated || null, source: d.source || (d.live ? "东方财富实时" : d.ext ? "静态数据文件(来源未记录)" : "内嵌快照") } : null;
+    });
+    var fx = window.FX_DATA;
+    stamp.fx = fx ? { start: fx.start, end: fx.end, updated: fx.updated || null, source: fx.source || "来源未记录" } : null;
+    return stamp;
+  }
   document.getElementById("b_share").addEventListener("click", function () {
-    var btn = this, url = location.origin + location.pathname + "#s=" + encodeURIComponent(JSON.stringify(getState()));
+    var btn = this, snapshot = { v: MODEL_VERSION, state: getState(), data: shareDataStamp() };
+    var url = location.origin + location.pathname + "#s=" + encodeURIComponent(JSON.stringify(snapshot));
     function done() { btn.textContent = "已复制"; setTimeout(function () { btn.textContent = "复制分享链接"; }, 1500); }
     if (navigator.clipboard && navigator.clipboard.writeText)
       navigator.clipboard.writeText(url).then(done, function () { window.prompt("复制这个链接：", url); });
@@ -699,7 +727,19 @@
     var raw = shareRaw();
     if (!raw) { try { raw = localStorage.getItem(SKEY); } catch (e) { return; } }
     if (!raw) return;
-    try { applyState(JSON.parse(raw)); } catch (e) { /* 存档坏了就用默认值 */ }
+    try {
+      var saved = JSON.parse(raw);
+      if (saved && saved.v && saved.state) {
+        applyState(saved.state);
+        var changed = saved.v !== MODEL_VERSION;
+        var oldData = saved.data || {};
+        ["ndx", "spx", "qqq", "fx"].forEach(function (k) {
+          var now = shareDataStamp()[k], was = oldData[k];
+          if (!was || !now || was.end !== now.end || was.updated !== now.updated || was.source !== now.source) changed = true;
+        });
+        if (changed) document.getElementById("share-note").textContent = "分享参数已恢复；模型版本或行情数据与生成链接时不同，历史回测结果可能变化。链接不包含行情文件。";
+      } else applyState(saved); // 兼容旧版仅含参数的分享链接与本地存档
+    } catch (e) { /* 存档坏了就用默认值 */ }
   }
   document.getElementById("b_reset").addEventListener("click", function () {
     try { localStorage.removeItem(SKEY); localStorage.removeItem(THEME_KEY); } catch (e) {}   // 深/浅色也回到跟随系统
@@ -1284,6 +1324,7 @@
     document.getElementById("t_real_m").textContent =
       d.infl > 0 ? "按 " + (d.infl * 100).toFixed(1) + "%/年 通胀，" + d.yrs + " 年后市值 " +
         yuan(last.val) + " ≈ 今天的 " + yuan(real) : "未设通胀率";
+    document.getElementById("t_real_m").textContent += "；已取出金额 " + yuan(d.drawn) + "，目标按期末余额判断";
 
     document.getElementById("netnote").textContent =
       "扣费后净年化 " + ((readVal("rate") - readVal("fee"))).toFixed(1) +
@@ -1316,16 +1357,18 @@
       realTxt = "按 " + (d.infl * 100).toFixed(1) + "% 通胀，届时需要 " + yuan(goal) + "；";
     }
     if (goal > 0) {
+      var hist = backtest(Object.assign({}, d, { goalTarget: goal }), idxKey(), null, false, false);
+      var probText = !hist.err ? "\n历史滚动窗口中期末账户余额达标 " + pctTxt(hist.goalPct) + "（" + hist.count + " 个窗口；非未来概率）。" : "\n" + hist.err;
       var m = solveMon(goal);
-      if (m === 0) goalOut.textContent = "→ 现有本金（加分段投入）已经够，不用再每月定投";
-      else if (m == null) goalOut.textContent = "→ 分段定投已覆盖全部年份，「每月定投」不起作用，请改分段金额";
+      if (m === 0) goalOut.textContent = "→ 现有本金（加分段投入）已经够，不用再每月定投" + probText;
+      else if (m == null) goalOut.textContent = "→ 分段定投已覆盖全部年份，「每月定投」不起作用，请改分段金额" + probText;
       else {
         goalMon = m;
         goalOut.textContent = "→ 每月需投 " + goalMon.toLocaleString("zh-CN") + " 元（" + realTxt + "按净年化 " +
           (d.net * 100).toFixed(1) + "%、" + d.yrs + " 年" +
           (d.growthOn ? "，此为第 1 年金额，之后逐年 +" + (d.growth * 100).toFixed(1) + "%" : "") +
           (d.stop > 0 && d.stop < d.yrs ? "，第 " + d.stop + " 年停投" +
-            (d.spend > 0 ? "、取用首月取 " + yuan(d.spendAt(d.stop * 12)) + (d.spendInfl ? "，以后随通胀上调" : "") : "") : "") + "）";
+            (d.spend > 0 ? "、取用首月取 " + yuan(d.spendAt(d.stop * 12)) + (d.spendInfl ? "，以后随通胀上调" : "") : "") : "") + "）" + probText;
       }
     } else goalOut.textContent = "—— 填个目标，算出每月要投多少";
     goalBtn.classList.toggle("hidden", goalMon == null);
@@ -1422,19 +1465,19 @@
       if (!(Math.abs(older.closes[off + i] / newer.closes[i] - 1) <= 0.01)) bad++;
     if (n < 12 || bad > n * 0.1) return newer;
     return { start: older.start, closes: older.closes.slice(0, off).concat(newer.closes),
-             updated: newer.updated, ext: newer.ext, live: newer.live };
+             updated: newer.updated, source: newer.source, ext: newer.ext, live: newer.live };
   }
   function idxData(key) {
     var c = IDX[key], e = window[c.extName], emb = c.emb, out = null;
     if (key === "qqq") {
       if (!e || !Array.isArray(e.closes) || !Array.isArray(e.adjusted) ||
           e.closes.length < 2 || e.closes.length !== e.adjusted.length) return null;
-      return { start: e.start, end: e.end, updated: e.updated, ext: true,
+      return { start: e.start, end: e.end, updated: e.updated, source: e.source, ext: true,
                closes: SIMPLE.btdiv.value === "1" ? e.adjusted : e.closes };
     }
     // 低优先级在前:内嵌快照 < 静态文件(cron 生成) < 浏览器实时;末月相同时后者说了算
-    [ emb && emb.closes ? { start: emb.start, closes: emb.closes, updated: "", ext: false } : null,
-      e && e.closes && e.closes.length > 100 ? { start: e.start, closes: e.closes, updated: e.updated, ext: true } : null,
+    [      emb && emb.closes ? { start: emb.start, closes: emb.closes, updated: "", source: "页面内嵌快照", ext: false } : null,
+      e && e.closes && e.closes.length > 100 ? { start: e.start, closes: e.closes, updated: e.updated, source: e.source || "静态数据文件(来源未记录)", ext: true } : null,
       LIVE[key] || null
     ].forEach(function (s) {
       if (!s || absIndexOf(s.start) == null) return;
@@ -1442,7 +1485,7 @@
     });
     if (!out) return null;      // 三层都没有
     return { start: out.start, end: idxLabel(out.start, out.closes.length - 1), closes: out.closes,
-             updated: out.updated, ext: out.ext, live: out.live };
+             updated: out.updated, source: out.source, ext: out.ext, live: out.live };
   }
 
   /* ---- 汇率 ----
@@ -1467,7 +1510,7 @@
     if (!SIMPLE.mixn.validity.valid || !SIMPLE.mixs.validity.valid || n + s > 100) return null;
     return [n / 100, s / 100, (100 - (n + s)) / 100];
   }
-  function mixData(weights) {
+  function mixData(weights, mode) {
     var w = weights || mixWeights();
     if (!w) return { brief: "比例无效", err: "纳指和标普的比例不能为负，合计不能超过 100%。" };
     var fx = SIMPLE.btfx.value === "1", div = SIMPLE.btdiv.value === "1", fee = readVal("fee") / 1200;
@@ -1481,16 +1524,65 @@
     if (end <= start) return { brief: "无共同月份", err: "纳指和标普没有足够的共同月份。" };
     var offsets = data.map(function (d) { return start - absIndexOf(d.start); });
     var yields = keys.map(function (k) { return div ? Math.pow(1 + IDX[k].yld, 1 / 12) - 1 : 0; });
-    var cash = Math.pow(1 + CASH_ANNUAL, 1 / 12);
+    var assetRets = data.map(function (d, i) {
+      var out = [];
+      for (var j = 0; j < end - start; j++) {
+        var ix = offsets[i] + j;
+        out.push(d.closes[ix + 1] / d.closes[ix] + yields[i] - fee);
+      }
+      return out;
+    });
+    var cashRate = Math.pow(1 + CASH_ANNUAL, 1 / 12), positions = [w[0], w[1]], cash = w[2];
+    var rebal = mode || (SIMPLE.rebalance && SIMPLE.rebalance.value) || "1", series = [];
     for (var m = 0; m < end - start; m++) {
-      var growth = w[2] * cash;
-      data.forEach(function (d, i) {
-        var j = offsets[i] + m;
-        growth += w[i] * (d.closes[j + 1] / d.closes[j] + yields[i] - fee);
+      var values = positions.map(function (x, i) {
+        var d = data[i], j = offsets[i] + m;
+        return x * assetRets[i][m];
       });
-      closes.push(closes[m] * growth);
+      positions = values; cash *= cashRate;
+      var total = positions[0] + positions[1] + cash;
+      if ((rebal === "1" || rebal === "3" && (m + 1) % 3 === 0)) {
+        positions = [total * w[0], total * w[1]]; cash = total * w[2];
+      }
+      total = positions[0] + positions[1] + cash;
+      closes.push(total); series.push(total / closes[m]);
     }
-    return { start: ymLabel(start, 0), end: ymLabel(end, 0), closes: closes, weights: w };
+    return { start: ymLabel(start, 0), end: ymLabel(end, 0), closes: closes, weights: w, returns: series, assetRets: assetRets, cashRate: cashRate, rebal: rebal,
+      source: data.map(function (d, i) { return keys[i] + ":" + (d.source || (d.live ? "东方财富实时" : d.ext ? "静态数据文件(来源未记录)" : "页面内嵌快照")); }).join(" + "),
+      updated: data.reduce(function (v, d) { return !v || d.updated && d.updated < v ? d.updated : v; }, "") };
+  }
+
+  function mixStep(positions, cash, assetReturns, weights, mode, pay, month, cashRate, initial) {
+    var startValue = positions[0] + positions[1] + cash;
+    positions = positions.map(function (v, i) { return v * assetReturns[i]; });
+    cash *= cashRate;
+    var marketValue = positions[0] + positions[1] + cash;
+    pay += initial || 0;
+    if (pay > 0) {
+      if (mode === "new") {
+        positions[0] += pay * weights[0]; positions[1] += pay * weights[1]; cash += pay * weights[2];
+      } else {
+        positions[0] += pay * weights[0]; positions[1] += pay * weights[1]; cash += pay * weights[2];
+      }
+    }
+    var value = positions[0] + positions[1] + cash;
+    if (mode !== "new" && (mode === "1" || month % Number(mode) === 0)) {
+      positions = [value * weights[0], value * weights[1]]; cash = value * weights[2];
+    }
+    return { positions: positions, cash: cash, value: value, marketValue: marketValue,
+      return: startValue > 0 ? marketValue / startValue : 1 };
+  }
+
+  function mixInitial(value, weights) {
+    return { positions: [value * weights[0], value * weights[1]], cash: value * weights[2] };
+  }
+
+  function mixWithdraw(state, amount) {
+    var value = state.positions[0] + state.positions[1] + state.cash;
+    var take = Math.min(amount, value), remain = value > 0 ? (value - take) / value : 0;
+    state.positions = state.positions.map(function (v) { return v * remain; });
+    state.cash *= remain;
+    return take;
   }
 
   // 止盈规则:{x: 持仓浮盈到多少触发, y: 触发时卖出持仓的比例};没勾选或填得不对就是 null
@@ -1614,7 +1706,8 @@
     key = key || idxKey();
     withDetail = withDetail !== false;
     withIRR = withIRR !== false;
-    var prof = IDX[key], data = key === "mix" ? mixData(weights) : idxData(key);
+    var prof = IDX[key], rebal = (SIMPLE.rebalance && SIMPLE.rebalance.value) || "1";
+    var data = key === "mix" ? mixData(weights, rebal) : idxData(key);
     if (data && data.err) return data;
     if (!data) return { brief: "数据未加载", err: prof.name + " 数据未加载——请在同目录放 " + prof.extFile +
       "（由 update_ndx.sh 生成），或改用纳斯达克100" };
@@ -1626,7 +1719,8 @@
     var need = d.yrs * 12, closes = data.closes;
     var rets = [], divOn = SIMPLE.btdiv.value === "1",
         divM = Math.pow(1 + (prof.yld || 0), 1 / 12) - 1, feeM = key === "mix" ? 0 : readVal("fee") / 100 / 12;
-    for (var i = 0; i < closes.length - 1; i++)
+    if (key === "mix") rets = data.returns;
+    else for (var i = 0; i < closes.length - 1; i++)
       rets.push(closes[i + 1] / closes[i] - 1 + (divOn ? divM : 0) - feeM);
 
     var maxS = rets.length - need;
@@ -1642,7 +1736,7 @@
     // 设了停投后支出时,取出去花掉的钱也是这套方案挣到的:盈亏、排名都按 tot =「期末市值 + 途中取出」算,
     // 不然一路取走几十万、期末余额低于本金的窗口会被判成亏损。没设支出时 tot 就是期末市值。
     var flatTot = d.pts[d.pts.length - 1].val + (d.drawn || 0);     // 同方案的固定利率投影,同一口径
-    var finals = [], tots = [], lost = 0, beat = 0, worst = null, best = null;
+    var finals = [], tots = [], lost = 0, beat = 0, goalHits = 0, worst = null, best = null;
     var ruin = 0, ruinFirst = null;               // 途中把账户取空的窗口数;最早取空的那个 {m: 第几个月, s: 起点}
     // 途中最大浮亏:每个窗口里「市值 ÷ 已投入本金 − 1」的最低点。
     // 开始取钱之后市值本来就该低于本金,那段不算。
@@ -1655,17 +1749,37 @@
       // one = 对照组:把全部本金(acc)在第一个月一次性投进去,其余规则相同
       var bal = d.lump, mi = 0, dip = 0, one = acc, oneDip = 0, drawn = 0, oneDrawn = 0, emptyM = 0;
       var flows = withIRR ? [-d.lump] : null, unit = 1, peak = 1, dd = 0;
+      var mixState = key === "mix" ? mixInitial(d.lump, data.weights) : null;
+      var oneState = key === "mix" ? mixInitial(acc, data.weights) : null;
       if (withDetail) bands[0].push(bal);
       // 止盈对照组:pos 持仓市值、cost 持仓成本、cash 已落袋的钱(放货基)
       var pos = d.lump, cost = d.lump, cash = 0, tpDip = 0, sold = false, tpDrawn = 0;
+      var tpState = key === "mix" ? mixInitial(d.lump, data.weights) : null, tpCost = d.lump, tpCash = 0;
       for (; mi < need; mi++) {
         var r = rets[s + mi], pay = d.payAt(mi), taking = taking0 && mi >= stopM;
         var spendNow = d.spendAt ? d.spendAt(mi) : spend;
+        if (key === "mix") {
+          var rs = [data.assetRets[0][s + mi], data.assetRets[1][s + mi]];
+          var mr = mixStep(mixState.positions, mixState.cash, rs, data.weights, rebal, pay, mi + 1, data.cashRate);
+          mixState = { positions: mr.positions, cash: mr.cash }; bal = mr.value;
+          r = mr.return;
+          var or = mixStep(oneState.positions, oneState.cash, rs, data.weights, rebal, 0, mi + 1, data.cashRate);
+          oneState = { positions: or.positions, cash: or.cash }; one = or.value;
+          if (tp) {
+            var tr = mixStep(tpState.positions, tpState.cash, rs, data.weights, rebal, pay, mi + 1, data.cashRate);
+            tpState = { positions: tr.positions, cash: tr.cash }; tpCost += pay; tpCash *= 1 + d.bankM;
+            if (tpCost > 0 && tr.value >= tpCost * (1 + tp.x)) {
+              var proceeds = (tr.value - tpCash) * tp.y, keep = tr.value > 0 ? 1 - proceeds / tr.value : 0;
+              tpState.positions = tpState.positions.map(function (v) { return v * keep; }); tpState.cash *= keep;
+              tpCash += proceeds; tpCost = tr.value - proceeds; sold = true;
+            }
+          }
+        }
         unit *= 1 + r; peak = Math.max(peak, unit); dd = Math.min(dd, unit / peak - 1);
         var take = 0;
-        bal = bal * (1 + r) + pay;
-        one *= 1 + r;
-        if (tp) {
+        if (key !== "mix") bal = bal * (1 + r) + pay;
+        if (key !== "mix") one *= 1 + r;
+        if (tp && key !== "mix") {
           pos = pos * (1 + r) + pay; cost += pay; cash *= 1 + d.bankM;
           // 浮盈到线:卖出 y,剩下的持仓成本按现价重新起算(要再涨 x 才会再卖)
           if (cost > 0 && pos >= cost * (1 + tp.x)) { cash += pos * tp.y; pos *= 1 - tp.y; cost = pos; sold = true; }
@@ -1679,12 +1793,23 @@
           take = Math.min(spendNow, bal);
           var take1 = Math.min(spendNow, one);   // 余额不够时只能取出剩下的
           bal -= take; drawn += take;
+          if (key === "mix") mixWithdraw(mixState, take);
+          if (key === "mix" && tp) {
+            var tpValue = tpState.positions[0] + tpState.positions[1] + tpState.cash + tpCash;
+            var tpTake = Math.min(spendNow, tpValue), fromTpCash = Math.min(tpCash, tpTake), fromMix = tpTake - fromTpCash;
+            tpCash -= fromTpCash;
+            if (fromMix > 0) mixWithdraw(tpState, fromMix);
+            tpDrawn += tpTake;
+          }
           one -= take1; oneDrawn += take1;
           if (bal <= 0 && !emptyM) emptyM = mi + 1;                        // 取空了:记下是第几个月
         } else {
           if (inv[mi] > 0 && bal / inv[mi] - 1 < dip) dip = bal / inv[mi] - 1;
           if (acc > 0 && one / acc - 1 < oneDip) oneDip = one / acc - 1;
-          if (tp && inv[mi] > 0 && (pos + cash) / inv[mi] - 1 < tpDip) tpDip = (pos + cash) / inv[mi] - 1;
+          if (tp && inv[mi] > 0) {
+            var tpValue = key === "mix" ? tpState.positions[0] + tpState.positions[1] + tpState.cash + tpCash : pos + cash;
+            if (tpValue / inv[mi] - 1 < tpDip) tpDip = tpValue / inv[mi] - 1;
+          }
         }
         if (flows) flows.push(take - pay);
         if (withDetail && (mi + 1) % 12 === 0) bands[(mi + 1) / 12].push(bal);
@@ -1698,14 +1823,16 @@
       if (one + oneDrawn > tot) oneWin++;
       if (oneDip < oneDeep) oneDeep = oneDip;
       if (tp) {
-        tps.push(pos + cash);
-        if (pos + cash + tpDrawn > tot) tpWin++;
+        var tpEnd = key === "mix" ? tpState.positions[0] + tpState.positions[1] + tpState.cash + tpCash : pos + cash;
+        tps.push(tpEnd);
+        if (tpEnd + tpDrawn > tot) tpWin++;
         if (tpDip < tpDeep) tpDeep = tpDip;
         if (sold) tpHit++;
       }
       dips.push(dip);
       if (!deep || dip < deep.v) deep = { v: dip, s: s };
       finals.push(bal); tots.push(tot); ends.push({ v: tot, s: s, irr: irr });
+      if (d.goalTarget > 0 && bal >= d.goalTarget) goalHits++;
       if (tot < prin) lost++;
       if (tot > flatTot) beat++;
       if (!worst || tot < worst.tot) worst = { val: bal, tot: tot, s: s, irr: irr };
@@ -1735,6 +1862,7 @@
       // med、worst.val、best.val 是期末市值;medTot、.tot 是「期末市值 + 途中取出」(没设支出时两者相等)
       count: n, med: median(finals), medTot: median(tots), worst: worst, best: best,
       lossPct: lost / n * 100, beatPct: beat / n * 100,
+      goalPct: d.goalTarget > 0 ? goalHits / n * 100 : null,
       minS: minS, maxS: maxS, need: need,
       winYrs: winYrs, divOn: divOn,
     };
@@ -1936,8 +2064,23 @@
     var grid = document.getElementById("btgrid"),
         note = document.getElementById("btnote"),
         since = document.getElementById("btsince");
+    var key = idxKey(), meta = key === "mix" ? mixData() : idxData(key);
     var bt = backtest(d);
-    drawCmp(d, idxKey(), bt);
+    var metaText = "";
+    if (meta) {
+      metaText = "数据 " + meta.start + " 至 " + meta.end + "；来源 " + (meta.source || (meta.live ? "东方财富实时" : meta.ext ? "静态文件，来源未记录" : "页面内嵌快照")) +
+        (key === "mix" ? "；再平衡 " + ({ "1": "每月", "3": "每季度", "new": "仅新增资金" }[(SIMPLE.rebalance && SIMPLE.rebalance.value) || "1"]) : "") +
+        (meta.updated ? "；更新于 " + meta.updated : "；无更新日期");
+      var age = meta.updated ? (Date.now() - Date.parse(meta.updated + "T00:00:00")) / 86400000 : Infinity;
+      if (age > 100) metaText += "。警告：数据超过 100 天未更新";
+      if (meta.closes.length < 120) metaText += "。警告：历史少于 10 年，长期窗口覆盖有限";
+      for (var qi = 1; qi < meta.closes.length; qi++) {
+        var ratio = meta.closes[qi] / meta.closes[qi - 1];
+        if (!(ratio > 0) || ratio > 2 || ratio < 0.5) { metaText += "。警告：检测到单月变化超过 ±50%，请核对数据"; break; }
+      }
+    }
+    document.getElementById("btmeta").textContent = metaText;
+    drawCmp(d, key, bt);
     drawAlloc(d, bt);
     document.getElementById("btchart").classList.toggle("hidden", !bt || !!bt.err);
     if (!bt || bt.err) {
@@ -1946,7 +2089,7 @@
       since.textContent = "";
       return;
     }
-    var key = idxKey(), prof = IDX[key], data = bt.data;
+    var prof = IDX[key], data = bt.data;
     var last = d.pts[d.pts.length - 1], prin = last.prin;
     // 相对本金的盈亏比,如 "＋18%" / "−6%"。传的是「期末市值 + 途中取出」:取出去花掉的钱也算回报
     function pct(v) {

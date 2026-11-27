@@ -378,7 +378,7 @@ gen_one() {
   {
     echo "/* ${ANAME[$kind]} 月末收盘,由 update_ndx.sh 自动生成,勿手改 (源: $SRC) */"
     echo "/* ${NOTE[$kind]} $start ~ $end 共 $n 个月 */"
-    echo "window.${GLOB[$kind]} = {start:'$start', end:'$end', updated:'$today', months:$n, closes:[$closes]};"
+    echo "window.${GLOB[$kind]} = {start:'$start', end:'$end', updated:'$today', source:'$SRC', months:$n, closes:[$closes]};"
   } > "$out.tmp" && mv -f "$out.tmp" "$out"
   log "[OK] ${ANAME[$kind]} $start ~ $end 共 $n 个月 -> $out"
 }
@@ -488,7 +488,7 @@ gen_qqq() {   # $1=输出文件
   {
     echo "/* QQQ 月末价,由 update_ndx.sh 自动生成,勿手改 (源: $SRC) */"
     echo "/* closes=收盘价(拆股调整,不含分红) adjusted=复权收盘价(分红再投资) $start ~ $end 共 $n 个月 */"
-    echo "window.QQQ_DATA = {start:'$start', end:'$end', updated:'$today', months:$n," \
+    echo "window.QQQ_DATA = {start:'$start', end:'$end', updated:'$today', source:'$SRC', months:$n," \
          "closes:[$(awk '{printf "%s%s", (NR > 1 ? "," : ""), $2}' "$d/months")]," \
          "adjusted:[$(awk '{printf "%s%s", (NR > 1 ? "," : ""), $3}' "$d/months")]};"
   } > "$out.tmp" && mv -f "$out.tmp" "$out"

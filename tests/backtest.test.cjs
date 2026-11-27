@@ -115,7 +115,7 @@ test('mix aligns different calendars and rebalances monthly with a cash sleeve',
   const start = html.indexOf('  function absIndexOf(');
   const helpers = html.slice(start, html.indexOf('  /* ---- 分段定投', start));
   const fxAndMix = html.slice(html.indexOf('  function fxApply('), html.indexOf('  // 止盈规则:'));
-  const SIMPLE = { btfx: { value: '0' }, btdiv: { value: '0' } };
+  const SIMPLE = { btfx: { value: '0' }, btdiv: { value: '0' }, rebalance: { value: '1' } };
   const mixData = vm.runInNewContext(helpers + fxAndMix + '\nmixData', {
     SIMPLE, IDX: { ndx: { yld: 0 }, spx: { yld: 0 } },
     idxData: (key) => key === 'ndx' ? { start: '2000-01', closes: [50, 100, 200, 100, 200] } : { start: '2000-02', closes: [100, 50, 100] },
@@ -127,9 +127,63 @@ test('mix aligns different calendars and rebalances monthly with a cash sleeve',
   assert.equal(equity.start, '2000-02');
   assert.equal(equity.end, '2000-04');
   assert.ok(Math.abs(equity.closes[2] - 1.249 ** 2) < 1e-12);
+  assert.equal(equity.returns.length, 2);
+  assert.ok(Math.abs(equity.returns[1] - (equity.closes[2] / equity.closes[1])) < 1e-12);
+  const quarterly = mixData([0.5, 0.5, 0], '3');
+  assert.notEqual(quarterly.closes[2], equity.closes[2]);
+  const buyOnly = mixData([0.5, 0.5, 0], 'new');
+  assert.equal(buyOnly.rebal, 'new');
+  assert.equal(buyOnly.returns.length, 2);
   assert.ok(Math.abs(mixData([0, 0, 1]).closes[2] - 1.015 ** (2 / 12)) < 1e-12);
   SIMPLE.btfx.value = '1';
   const fx = mixData([0.5, 0.5, 0]);
   assert.ok(Math.abs(fx.closes[1] - (1.25 * 8 / 7 - 0.001)) < 1e-12);
   assert.ok(Math.abs(mixData([0, 0, 1]).closes[2] - 1.015 ** (2 / 12)) < 1e-12);
+});
+
+test('mix stepping adds staged contributions without selling existing holdings', () => {
+  const start = html.indexOf('  function mixStep(');
+  const end = html.indexOf('  function mixInitial(', start);
+  const step = vm.runInNewContext(html.slice(start, end) + '\nmixStep');
+  const weights = [0.5, 0.25, 0.25];
+  const first = step([50, 25], 25, [2, 0.5], weights, 'new', 0, 1, 1);
+  assert.deepEqual(Array.from(first.positions), [100, 12.5]);
+  assert.equal(first.cash, 25);
+  assert.equal(first.value, 137.5);
+  const staged = step(first.positions, first.cash, [1, 1], weights, 'new', 20, 2, 1);
+  assert.deepEqual(Array.from(staged.positions), [110, 17.5]);
+  assert.equal(staged.cash, 30);
+  assert.equal(staged.value, 157.5);
+  const quarterly = step(first.positions, first.cash, [1, 1], weights, '3', 20, 2, 1);
+  assert.deepEqual(Array.from(quarterly.positions), [110, 17.5]);
+  const quarterEnd = step(quarterly.positions, quarterly.cash, [1, 1], weights, '3', 0, 3, 1);
+  assert.ok(Math.abs(quarterEnd.positions[0] / quarterEnd.value - 0.5) < 1e-12);
+  assert.ok(Math.abs(quarterEnd.positions[1] / quarterEnd.value - 0.25) < 1e-12);
+});
+
+test('mix backtest uses staged portfolio holdings and matches its one-time path', () => {
+  const start = html.indexOf('  function mixStep(');
+  const end = html.indexOf('  /* ---- 三个标的并排对比');
+  const helpersStart = html.indexOf('  function btQuantile(');
+  const engineSource = html.slice(start, html.indexOf('  function mixInitial(', start)) +
+    html.slice(html.indexOf('  function mixInitial(', start), html.indexOf('  // 止盈规则:', start)) +
+    html.slice(helpersStart, end);
+  const engine = vm.runInNewContext(engineSource + '\n({ backtest, mixInitial, mixStep })', {
+    idxKey: () => 'mix', IDX: { mix: { name: '组合', yld: 0 } },
+    mixData: () => ({ start: '2000-01', end: '2002-01', closes: Array(25).fill(1),
+      weights: [0.5, 0.5, 0], cashRate: 1, rebal: 'new',
+      assetRets: [Array(24).fill(1.1), Array(24).fill(0.9)], returns: Array(24).fill(1) }),
+    idxLabel: () => '2000-01', readVal: () => 0,
+    SIMPLE: { btfx: { value: '0' }, btdiv: { value: '0' }, btwin: { value: '0' }, rebalance: { value: 'new' } },
+  });
+  const plan = { yrs: 1, lump: 100, stop: 0, spend: 0, payAt: (m) => m < 6 ? 10 : 0,
+    pts: [{ val: 160, prin: 160 }], tp: null, bankM: 1, goalTarget: 0 };
+  const result = engine.backtest(plan, 'mix');
+  let expected = engine.mixInitial(100, [0.5, 0.5, 0]);
+  for (let m = 0; m < 12; m++) {
+    const step = engine.mixStep(expected.positions, expected.cash, [1.1, 0.9], [0.5, 0.5, 0], 'new', m < 6 ? 10 : 0, m + 1, 1);
+    expected = { positions: step.positions, cash: step.cash };
+  }
+  assert.ok(Math.abs(result.med - (expected.positions[0] + expected.positions[1] + expected.cash)) < 1e-10);
+  assert.equal(result.count, 13);
 });
