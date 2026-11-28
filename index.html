@@ -342,6 +342,7 @@
       <span id="goalout"></span>
       <button class="btn hidden" id="b_goal" type="button">填入「每月定投」</button>
     </div>
+    <p class="note" id="goalhist"></p>
 
     <!-- 分段定投：某年起改每月投入额（金额填 0 = 该年起停投） -->
     <div class="stages">
@@ -369,6 +370,7 @@
     <div class="k" style="font-size:12px;color:var(--text-secondary)">期末账户市值</div>
     <div class="hero-val" id="hero">—</div>
     <p class="hero-sub" id="herosub"></p>
+    <p class="hero-sub" id="herohist"></p>
   </div>
 
   <div class="tiles">
@@ -506,6 +508,10 @@
     <p class="bt-note" id="btnote"></p>
     <p class="bt-note" id="btmeta"></p>
     <div class="dd" id="btgrid"></div>
+    <details style="margin-top:12px">
+      <summary style="cursor:pointer;font-size:12px;color:var(--text-secondary)">更多指标（年化收益率、净值回撤、跑赢预期、一次性投入与止盈对照）</summary>
+      <div class="dd" id="btgrid2"></div>
+    </details>
 
     <!-- 三个代表性窗口的账户曲线（逻辑见 drawBtChart） -->
     <div id="btchart">
@@ -529,9 +535,11 @@
     </div>
 
     <!-- 同一套方案放进三个标的（逻辑见 drawCmp） -->
-    <h3 style="font-size:13px;font-weight:600;margin:22px 0 0">三个标的并排对比</h3>
-    <div id="btcmp" style="overflow-x:auto"></div>
-    <p class="bt-note" id="btcmpnote"></p>
+    <details style="margin-top:18px">
+      <summary style="cursor:pointer;font-size:13px;font-weight:600">三个标的并排对比</summary>
+      <div id="btcmp" style="overflow-x:auto"></div>
+      <p class="bt-note" id="btcmpnote"></p>
+    </details>
     <p class="bt-note" id="btsince"></p>
   </div>
 
@@ -1369,7 +1377,7 @@
     }
     return hi;
   }
-  var goalMon = null, goalOut = document.getElementById("goalout"), goalBtn = document.getElementById("b_goal");
+  var goalAmt = 0, goalMon = null, goalOut = document.getElementById("goalout"), goalBtn = document.getElementById("b_goal");
   function drawGoal(d) {
     var goal = parseFloat(SIMPLE.goal.value) * 1e4, realTxt = "";
     goalMon = null;
@@ -1378,6 +1386,7 @@
       goal *= Math.pow(1 + d.infl, d.yrs);
       realTxt = "按 " + (d.infl * 100).toFixed(1) + "% 通胀，届时需要 " + yuan(goal) + "；";
     }
+    goalAmt = goal > 0 ? goal : 0;      // 回测那边按历史行情再反推一遍时用(见 solveHistMon)
     if (goal > 0) {
       var hist = backtest(Object.assign({}, d, { goalTarget: goal }), idxKey(), null, false, false);
       var probText = !hist.err ? "\n按现在填的每月定投 " + Math.round(d.mon).toLocaleString("zh-CN") + " 元，历史滚动窗口中期末账户余额达标 " +
@@ -1926,7 +1935,7 @@
   function drawAlloc(d, curBt) {
     var w = mixWeights(), out = document.getElementById("mixout"), table = document.getElementById("alloctbl");
     document.getElementById("b_mix").disabled = !w;
-    out.textContent = w ? "现金 " + parseFloat((w[2] * 100).toFixed(2)) + "%" : "请输入两项比例，合计须在 0～100% 之间";
+    out.textContent = w ? "现金 " + parseFloat((w[2] * 100).toFixed(2)) + "%（注意：页面上方的期末市值按手填的预期年化算，不随这里的比例变，比例只影响历史回测）" :"请输入两项比例，合计须在 0～100% 之间";
     var configs = [{ name: "自定义", w: w }, { name: "全纳指", w: [1, 0, 0] },
       { name: "纳指80 / 标普20", w: [0.8, 0.2, 0] },
       { name: "纳指60 / 标普30 / 现金10", w: [0.6, 0.3, 0.1] },
@@ -2130,6 +2139,23 @@
     rect.addEventListener("touchend", hide);
   }
 
+  // 按历史行情反推:每月投多少,才有一半的历史窗口期末够到目标(精确到 50 元)。
+  // 0 = 不用再投;null = 算不出(数据不够,或加到再多也不够)
+  function solveHistMon(goal, key) {
+    var med = function (m) { var r = backtest(compute(m), key, null, false, false); return r.err ? null : r.med; };
+    var v = med(0);
+    if (v == null) return null;
+    if (v >= goal) return 0;
+    var lo = 0, hi = 1000;
+    while (med(hi) < goal) { lo = hi; hi *= 2; if (hi > 1e7) return null; }
+    while (hi - lo > 50) {
+      var mid = Math.round((lo + hi) / 100) * 50;
+      if (mid <= lo || mid >= hi) break;
+      if (med(mid) >= goal) hi = mid; else lo = mid;
+    }
+    return hi;
+  }
+
   function drawBacktest(d) {
     var grid = document.getElementById("btgrid"),
         note = document.getElementById("btnote"),
@@ -2155,6 +2181,9 @@
     document.getElementById("btchart").classList.toggle("hidden", !bt || !!bt.err);
     if (!bt || bt.err) {
       grid.innerHTML = "";
+      document.getElementById("btgrid2").innerHTML = "";
+      document.getElementById("herohist").textContent = "";
+      document.getElementById("goalhist").textContent = "";
       note.textContent = bt ? bt.err : "回测数据未加载";
       since.textContent = "";
       return;
@@ -2194,18 +2223,30 @@
       bt.ruin.n ? "down" : "up"]);
     var h = "";
     if (bt.one) tiles.push(["若一次性投入", bt.one.winPct.toFixed(0) + "% 窗口更优",
-      "把 " + yuan(prin) + " 一开始全投；中位数 " + yuan(bt.one.med) + "，途中最大浮亏 −" + (-bt.one.dip * 100).toFixed(0) + "%", ""]);
+      "假设第一天就有全部 " + yuan(prin) + " 并一次投入（靠每月收入定投的人做不到）；中位数 " + yuan(bt.one.med) + "，途中最大浮亏 −" + (-bt.one.dip * 100).toFixed(0) + "%", ""]);
     if (bt.tp) {
       var pn = function (v) { return parseFloat((v * 100).toFixed(1)) + "%"; };
       tiles.push(["若按规则止盈", bt.tp.winPct.toFixed(0) + "% 窗口更优",
         "浮盈达 " + pn(bt.tp.x) + " 卖 " + pn(bt.tp.y) + "，对比一直拿着；中位数 " + yuan(bt.tp.med) + "，途中最大浮亏 −" +
         (-bt.tp.dip * 100).toFixed(0) + "%，" + bt.tp.hitPct.toFixed(0) + "% 的窗口触发过", ""]);
     }
+    // 主区只放最要紧的几格,其余收进「更多指标」
+    var MAIN = ["中位数结局", "最惨窗口", "最好窗口", "亏损概率", "途中耗尽概率", "途中最大浮亏"], h2 = "";
     tiles.forEach(function (t) {
-      h += '<div class="dd-item ' + (t[4] || "") + '"><div class="k">' + t[0] + '</div><div class="v ' + t[3] + '">' +
+      var cell = '<div class="dd-item ' + (t[4] || "") + '"><div class="k">' + t[0] + '</div><div class="v ' + t[3] + '">' +
            t[1] + '</div><div class="m">' + t[2] + "</div></div>";
+      if (MAIN.indexOf(t[0]) >= 0) h += cell; else h2 += cell;
     });
     grid.innerHTML = h;
+    document.getElementById("btgrid2").innerHTML = h2;
+    // 把回测结论带回页面上半部分:固定利率算出的大数字旁边,放上历史行情里的实际结局
+    document.getElementById("herohist").textContent = "同一方案放进" + prof.name + "的历史行情：中位数 " + yuan(bt.med) +
+      "，最惨 " + yuan(bt.worst.val) + "；" + bt.beatPct.toFixed(0) + "% 的历史窗口超过了上面这个数。详见下方历史回测。";
+    var hm = goalAmt > 0 ? solveHistMon(goalAmt, key) : null;
+    document.getElementById("goalhist").textContent = hm == null ? "" : hm === 0
+      ? "换成历史行情来算（" + prof.name + "）：不用再每月定投，也有一半以上的历史窗口期末达标。"
+      : "换成历史行情来算（" + prof.name + "，选项同下方回测）：每月约需投 " + hm.toLocaleString("zh-CN") +
+        " 元，才有一半的历史窗口期末达标。和上面按预期年化算出的金额差得多，就说明预期年化填得偏乐观或偏保守。";
     drawBtChart(d, bt, data);
     note.textContent = "把左侧整套方案（本金、分段/递增、停投、费率）原样放进 " + data.start + " 以来的" + prof.full +
       "（数据至 " + data.end +
@@ -2219,7 +2260,8 @@
         ? (bt.divOn ? "使用含分红再投资的复权收盘价。" : "使用拆股调整收盘价，不含分红。")
         : key === "mix" ? "股票部分按所选分红与费率计算，现金按年化 1.5% 计算，不含交易成本。"
         : "分红" + (bt.divOn ? "按 " + (prof.yld * 100).toFixed(1) + "%/年 加回" : "未计") +
-          "（" + prof.name + "长期股息率约 " + (prof.yld * 100).toFixed(1) + "%）；价格为真值，误差主要来自分红估计与费率近似。");
+          "（" + prof.name + "长期股息率约 " + (prof.yld * 100).toFixed(1) + "%）；价格为真值，误差主要来自分红估计与费率近似。" +
+          (bt.divOn ? "股息率用的是近年水平，早年实际更高，所以越早起投的窗口越被低估。" : ""));
     if (bt.fxOn) note.textContent += "已计入汇率：每月点位先按当月美元兑人民币汇率折成人民币，再算涨跌；汇率只从 1994 年并轨算起（更早的官方汇率与市场价脱节），所以数据起点最早是 1994-01。";
     if (bt.ruin) note.textContent += "设了停投后每月支出：格子里的大数字是期末账户里还剩多少；盈亏、亏损概率和排名按「期末市值＋途中取出的钱」算——取出去花掉的也是这套方案挣到的。";
     note.textContent += "「途中最大浮亏」是持有期间账户市值相对已投入本金的最低点" +
@@ -2228,6 +2270,7 @@
     since.textContent = key === "mix" ? "组合整体预期年化用于上方固定利率投影，可自行调整。历史回测使用下方设置的实际权重。" : key === "spx"
       ? "提示：同一起点上标普500 的结局比纳指温和（波动小、回撤浅），代价是长期收益也低一截——来回切一下这两个选项，就是「波动换收益」的直观版本。"
       : "提示：「最惨窗口」基本都是 1999–2001、2007、2021 这类山顶起投——同一起点差异比想象的大得多，定投的意义正是摊平它。";
+    since.textContent += " 另外要记住：这里只用了美股过去几十年的行情，它是同期全球表现最好的市场之一，未来不一定重现。";
   }
 
   /* ---------------- 视图切换 & 主题 ---------------- */
