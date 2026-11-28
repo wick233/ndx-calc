@@ -518,7 +518,10 @@
         <div class="tip" id="bttip"></div>
       </div>
       <div class="legend">
-        <span><span class="swatch" style="width:14px;height:2px;border-radius:1px;background:var(--series-2)"></span>历史窗口的账户市值（最好 / 中位 / 最惨，见线尾标注）</span>
+        <span><span class="swatch" style="width:14px;height:2px;border-radius:1px;background:var(--scenario-best)"></span>最好窗口</span>
+        <span><span class="swatch" style="width:14px;height:2px;border-radius:1px;background:var(--scenario-mid)"></span>中位窗口</span>
+        <span><span class="swatch" style="width:14px;height:2px;border-radius:1px;background:var(--scenario-worst)"></span>最惨窗口</span>
+        <span><span class="swatch" style="width:14px;height:0;border-top:2px dashed var(--series-2);background:none"></span>一次性投入 / 止盈对照（勾选后显示，同中位窗口起点）</span>
         <span><span class="swatch" style="width:14px;background:var(--series-2);opacity:.3"></span>中间一半窗口的范围（每年末的 25%～75% 分位）</span>
         <span><span class="swatch" style="width:14px;height:2px;border-radius:1px;background:var(--series-1)"></span>累计投入本金</span>
         <span><span class="swatch" style="width:14px;height:0;border-top:2px dashed var(--text-muted);background:none"></span>固定利率投影</span>
@@ -753,7 +756,8 @@
         var oldData = saved.data || {};
         ["ndx", "spx", "qqq", "fx"].forEach(function (k) {
           var now = shareDataStamp()[k], was = oldData[k];
-          if (!was || !now || was.end !== now.end || was.updated !== now.updated || was.source !== now.source) changed = true;
+          // 只比数据截止月份:更新日期每天都变,比它等于每次都提示
+          if (!was || !now || was.end !== now.end) changed = true;
         });
         if (changed) document.getElementById("share-note").textContent = "分享参数已恢复；模型版本或行情数据与生成链接时不同，历史回测结果可能变化。链接不包含行情文件。";
       } else applyState(saved); // 兼容旧版仅含参数的分享链接与本地存档
@@ -1342,7 +1346,7 @@
     document.getElementById("t_real_m").textContent =
       d.infl > 0 ? "按 " + (d.infl * 100).toFixed(1) + "%/年 通胀，" + d.yrs + " 年后市值 " +
         yuan(last.val) + " ≈ 今天的 " + yuan(real) : "未设通胀率";
-    document.getElementById("t_real_m").textContent += "；已取出金额 " + yuan(d.drawn) + "，目标按期末余额判断";
+    if (d.drawn > 0) document.getElementById("t_real_m").textContent += "；另已取出 " + yuan(d.drawn);
 
     document.getElementById("netnote").textContent =
       "扣费后净年化 " + ((readVal("rate") - readVal("fee"))).toFixed(1) +
@@ -1376,7 +1380,8 @@
     }
     if (goal > 0) {
       var hist = backtest(Object.assign({}, d, { goalTarget: goal }), idxKey(), null, false, false);
-      var probText = !hist.err ? "\n历史滚动窗口中期末账户余额达标 " + pctTxt(hist.goalPct) + "（" + hist.count + " 个窗口；非未来概率）。" : "\n" + hist.err;
+      var probText = !hist.err ? "\n按现在填的每月定投 " + Math.round(d.mon).toLocaleString("zh-CN") + " 元，历史滚动窗口中期末账户余额达标 " +
+        pctTxt(hist.goalPct).replace("&lt;", "<").replace("&gt;", ">") + "（" + hist.count + " 个窗口；非未来概率）。" : "\n" + hist.err;
       var m = solveMon(goal);
       if (m === 0) goalOut.textContent = "→ 现有本金（加分段投入）已经够，不用再每月定投" + probText;
       else if (m == null) goalOut.textContent = "→ 分段定投已覆盖全部年份，「每月定投」不起作用，请改分段金额" + probText;
@@ -1434,7 +1439,7 @@
   };
   function idxKey() {
     var k = SIMPLE.btidx.value;
-    return Object.hasOwn(IDX, k) ? k : "ndx";
+    return Object.prototype.hasOwnProperty.call(IDX, k) ? k : "ndx";   // 不用 Object.hasOwn:老一点的手机浏览器没有
   }
 
   /* ---- 整页指数切换 ----
@@ -1523,6 +1528,10 @@
   }
 
   var CASH_ANNUAL = 0.015;
+  // 当前选的再平衡方式,说明文字里用
+  function rebalTxt() {
+    return { "1": "每月恢复目标权重", "3": "每季度恢复目标权重", "new": "只用新增资金补偏少的部分、不卖出" }[(SIMPLE.rebalance && SIMPLE.rebalance.value) || "1"];
+  }
   function mixWeights() {
     var n = Number(SIMPLE.mixn.value), s = Number(SIMPLE.mixs.value);
     if (!SIMPLE.mixn.validity.valid || !SIMPLE.mixs.validity.valid || n + s > 100) return null;
@@ -1578,7 +1587,11 @@
     pay += initial || 0;
     if (pay > 0) {
       if (mode === "new") {
-        positions[0] += pay * weights[0]; positions[1] += pay * weights[1]; cash += pay * weights[2];
+        // 不卖出,只用新投入的钱去补:按「离目标金额还差多少」的比例分给偏少的那几类
+        var cur = [positions[0], positions[1], cash], tgt = marketValue + pay, sumDef = 0;
+        var def = cur.map(function (v, i) { var x = Math.max(0, tgt * weights[i] - v); sumDef += x; return x; });
+        var add = def.map(function (x, i) { return sumDef > 0 ? pay * x / sumDef : pay * weights[i]; });
+        positions[0] += add[0]; positions[1] += add[1]; cash += add[2];
       } else {
         positions[0] += pay * weights[0]; positions[1] += pay * weights[1]; cash += pay * weights[2];
       }
@@ -1787,7 +1800,8 @@
             var tr = mixStep(tpState.positions, tpState.cash, rs, data.weights, rebal, pay, mi + 1, data.cashRate);
             tpState = { positions: tr.positions, cash: tr.cash }; tpCost += pay; tpCash *= 1 + d.bankM;
             if (tpCost > 0 && tr.value >= tpCost * (1 + tp.x)) {
-              var proceeds = (tr.value - tpCash) * tp.y, keep = tr.value > 0 ? 1 - proceeds / tr.value : 0;
+              // tr.value 只是持仓(已落袋的 tpCash 不在里面),卖出额直接按持仓的 y 算
+              var proceeds = tr.value * tp.y, keep = 1 - tp.y;
               tpState.positions = tpState.positions.map(function (v) { return v * keep; }); tpState.cash *= keep;
               tpCash += proceeds; tpCost = tr.value - proceeds; sold = true;
             }
@@ -1820,6 +1834,7 @@
             tpDrawn += tpTake;
           }
           one -= take1; oneDrawn += take1;
+          if (key === "mix") mixWithdraw(oneState, take1);   // 对照组的持仓也要真的扣掉,不然取出的钱还留在里面继续涨
           if (bal <= 0 && !emptyM) emptyM = mi + 1;                        // 取空了:记下是第几个月
         } else {
           if (inv[mi] > 0 && bal / inv[mi] - 1 < dip) dip = bal / inv[mi] - 1;
@@ -1931,7 +1946,7 @@
         (r.irr ? (r.irr.med * 100).toFixed(2) + "%" : "无法确定") + "</td><td>" + (r.ddWorst.v * 100).toFixed(1) + "%</td></tr>";
     });
     table.innerHTML = h + "</tbody></table>";
-    document.getElementById("allocnote").textContent = "所有配置使用纳指和标普的共同月份、相同起点与投入取款计划。按月恢复目标权重，股票部分扣除所填年费率，现金按年化 1.5% 计算。现金以所选计价货币持有，不计交易费、税费或再平衡成本。" +
+    document.getElementById("allocnote").textContent = "所有配置使用纳指和标普的共同月份、相同起点与投入取款计划。" + rebalTxt() + "，股票部分扣除所填年费率，现金按年化 1.5% 计算。现金以所选计价货币持有，不计交易费、税费或再平衡成本。" +
       (sample ? "共同数据 " + sample.data.start + "～" + sample.data.end + "，起投范围 " + idxLabel(sample.data.start, sample.minS) + "～" + idxLabel(sample.data.start, sample.maxS) + "。" : "当前数据不足以覆盖设定年限。") +
       "上方固定利率投影使用手填的整体预期年化。落地时降低再平衡频率会与此模拟产生差异。";
   }
@@ -1999,7 +2014,7 @@
       if (strategy === "tp" && d.tp) {
         cost += pay; tpCash *= 1 + d.bankM;
         if (cost > 0 && step.value >= cost * (1 + d.tp.x)) {
-          var proceeds = (step.value - tpCash) * d.tp.y, keep = step.value > 0 ? 1 - proceeds / step.value : 0;
+          var proceeds = step.value * d.tp.y, keep = 1 - d.tp.y;
           state.positions = state.positions.map(function (v) { return v * keep; });
           state.cash *= keep; tpCash += proceeds; cost = step.value - proceeds; sold = true;
         }
@@ -2122,7 +2137,7 @@
     var key = idxKey(), meta = key === "mix" ? mixData() : idxData(key);
     var bt = backtest(d);
     var metaText = "";
-    if (meta) {
+    if (meta && !meta.err) {      // 组合比例无效时 mixData 返回的是 {err},没有行情可描述
       metaText = "数据 " + meta.start + " 至 " + meta.end + "；来源 " + (meta.source || (meta.live ? "东方财富实时" : meta.ext ? "静态文件，来源未记录" : "页面内嵌快照")) +
         (key === "mix" ? "；再平衡 " + ({ "1": "每月", "3": "每季度", "new": "仅新增资金" }[(SIMPLE.rebalance && SIMPLE.rebalance.value) || "1"]) : "") +
         (meta.updated ? "；更新于 " + meta.updated : "；无更新日期");
@@ -2170,7 +2185,7 @@
       "最好窗口 " + irrText(bt.best.irr) + "，代表性中位窗口 " + irrText(bt.medWindowIRR) + "，最惨窗口 " + irrText(bt.worst.irr) +
       "；主值为 " + (bt.irr ? bt.irr.count : 0) + "/" + bt.count + " 个可计算窗口的 IRR 中位数", ""]);
     tiles.push(["净值最大回撤", (bt.ddWorst.v * 100).toFixed(1) + "%",
-      "起于 " + idxLabel(data.start, bt.ddWorst.s) + "；排除追加投入和取款影响，按月末净值计算", "down"]);
+      "所有窗口里最深的一次（最早出现在起投于 " + idxLabel(data.start, bt.ddWorst.s) + " 的窗口，不是下跌开始的月份）；排除追加投入和取款影响，按月末净值计算", "down"]);
     // 设了停投后支出:最要紧的是钱会不会在期满前被取空,紧跟在「亏损概率」后面
     if (bt.ruin) tiles.splice(4, 0, ["途中耗尽概率", pctTxt(bt.ruin.pct),
       bt.ruin.n ? bt.ruin.n + " 个窗口没撑到期满；最早在第 " + Math.ceil(bt.ruin.first.m / 12) + " 年取空（起于 " +
@@ -2194,7 +2209,7 @@
     drawBtChart(d, bt, data);
     note.textContent = "把左侧整套方案（本金、分段/递增、停投、费率）原样放进 " + data.start + " 以来的" + prof.full +
       "（数据至 " + data.end +
-      (key === "mix" ? "，使用共同月份、按月再平衡" : key === "qqq" ? "，数据更新于 " + data.updated :
+      (key === "mix" ? "，使用共同月份、" + rebalTxt() : key === "qqq" ? "，数据更新于 " + data.updated :
         data.live ? "，本次打开页面时从东方财富实时获取" :
         data.ext ? "，每日自动更新" + (data.updated ? "，最近更新 " + data.updated : "") : "，内置快照") + "），" +
       // 写出实际的起投月份范围:「最近 N 年」指的是最晚的那 N 年起点,而最晚的起点本身要留够投资年限
@@ -2258,9 +2273,15 @@
     drawDrawdown(d);
     drawTable(d);
     drawGuide(d);
-    drawBacktestSafe(d);
+    // 回测最重(一次要跑好几遍):首屏立即算,之后等输入停下 120ms 再算,拖滑块时不卡
+    if (!btDrawn) { btDrawn = true; drawBacktestSafe(d); }
+    else {
+      clearTimeout(btTimer);
+      btTimer = setTimeout(function () { drawBacktestSafe(compute()); }, 120);
+    }
     if (!document.getElementById("chartview").classList.contains("hidden")) drawChart(d);
   }
+  var btDrawn = false, btTimer = null;
   // 回测是最复杂的一块,还依赖每天自动生成的数据文件:它万一出错,只在回测卡片里报出来,
   // 不连累上面的汇总、图表和表格
   function drawBacktestSafe(d) {

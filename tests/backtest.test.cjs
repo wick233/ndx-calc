@@ -173,9 +173,11 @@ test('mix stepping adds staged contributions without selling existing holdings',
   assert.equal(first.cash, 25);
   assert.equal(first.value, 137.5);
   const staged = step(first.positions, first.cash, [1, 1], weights, 'new', 20, 2, 1);
-  assert.deepEqual(Array.from(staged.positions), [110, 17.5]);
-  assert.equal(staged.cash, 30);
-  assert.equal(staged.value, 157.5);
+  // 纳指已超配(100 > 目标 78.75),新钱只补标普(差 26.875)和现金(差 14.375),按差额比例分
+  assert.equal(staged.positions[0], 100);
+  assert.ok(Math.abs(staged.positions[1] - (12.5 + 20 * 26.875 / 41.25)) < 1e-9);
+  assert.ok(Math.abs(staged.cash - (25 + 20 * 14.375 / 41.25)) < 1e-9);
+  assert.ok(Math.abs(staged.value - 157.5) < 1e-9);
   const quarterly = step(first.positions, first.cash, [1, 1], weights, '3', 20, 2, 1);
   assert.deepEqual(Array.from(quarterly.positions), [110, 17.5]);
   const quarterEnd = step(quarterly.positions, quarterly.cash, [1, 1], weights, '3', 0, 3, 1);
