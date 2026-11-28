@@ -105,9 +105,41 @@
     font: inherit; font-size: 13px; color: var(--text-secondary);
     background: var(--surface-1); border: 1px solid var(--border);
     border-radius: 8px; padding: 6px 12px; cursor: pointer;
+    transition: color 150ms ease-out, background-color 150ms ease-out, border-color 150ms ease-out, transform 150ms ease-out;
   }
   .btn:hover { color: var(--text-primary); }
+  .btn:active { transform: scale(0.97); }
   .btn[aria-pressed="true"] { color: var(--text-primary); font-weight: 600; }
+  .btn-danger { color: var(--critical); border-color: color-mix(in srgb, var(--critical) 35%, var(--border)); }
+  .btn-danger:hover { color: #fff; background: var(--critical); border-color: var(--critical); }
+
+  /* ---- 吸顶结果与快捷导航条 ---- */
+  .sticky-bar {
+    position: fixed; top: 0; left: 0; right: 0; z-index: 20;
+    background: color-mix(in srgb, var(--surface-1) 92%, transparent);
+    backdrop-filter: blur(10px); -webkit-backdrop-filter: blur(10px);
+    border-bottom: 1px solid var(--border);
+    transform: translateY(-100%); opacity: 0; pointer-events: none;
+    transition: transform 180ms ease-out, opacity 180ms ease-out;
+  }
+  .sticky-bar.on { transform: translateY(0); opacity: 1; pointer-events: auto; }
+  .sticky-inner {
+    max-width: 1020px; margin: 0 auto; padding: 8px 20px;
+    display: flex; align-items: center; justify-content: space-between; gap: 12px;
+  }
+  .sticky-metrics { display: flex; align-items: baseline; gap: 10px; min-width: 0; flex-wrap: wrap; }
+  .sticky-idx { font-size: 12px; color: var(--text-muted); white-space: nowrap; }
+  .sticky-val { font-family: var(--font-mono); font-variant-numeric: tabular-nums; font-size: 16px; font-weight: 600; color: var(--text-primary); white-space: nowrap; }
+  .sticky-hist { font-size: 12px; color: var(--text-secondary); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .sticky-nav { display: flex; align-items: center; gap: 4px; flex: none; overflow-x: auto; scrollbar-width: none; }
+  .sticky-nav::-webkit-scrollbar { display: none; }
+  .sticky-nav a {
+    font-size: 12px; color: var(--text-secondary); text-decoration: none;
+    padding: 5px 9px; border-radius: 7px; white-space: nowrap;
+    transition: color 150ms ease-out, background-color 150ms ease-out;
+  }
+  .sticky-nav a:hover { color: var(--text-primary); background: var(--page); }
+  [data-section] { scroll-margin-top: 62px; }
 
   .card {
     background: var(--surface-1); border: 1px solid var(--border);
@@ -118,20 +150,70 @@
   .note { font-size: 12px; color: var(--text-muted); margin: 4px 0 0; }
 
   /* ---- controls ---- */
-  .controls { display: grid; grid-template-columns: repeat(auto-fit, minmax(178px, 1fr)); gap: 18px 20px; }
+  .controls { display: grid; grid-template-columns: repeat(auto-fit, minmax(172px, 1fr)); gap: 16px 18px; }
   .ctrl label { display: block; font-size: 12px; color: var(--text-secondary); margin-bottom: 6px; }
   .ctrl .row { display: flex; align-items: center; gap: 8px; }
   .ctrl input[type=number] {
-    font-family: var(--font-mono); font-size: 14px; font-variant-numeric: tabular-nums;
+    font-family: var(--font-mono); font-size: max(1rem, 1em); font-variant-numeric: tabular-nums;
     width: 100%; padding: 7px 9px; color: var(--text-primary);
     background: var(--field); border: 1px solid var(--border); border-radius: 8px;
   }
   .ctrl .unit { font-size: 12px; color: var(--text-muted); white-space: nowrap; }
   .ctrl input[type=range] { width: 100%; margin: 9px 0 0; accent-color: var(--series-1); }
   .ctrl input[type=month] {
-    font-family: var(--font-mono); font-size: 14px; width: 100%; padding: 7px 9px;
+    font-family: var(--font-mono); font-size: max(1rem, 1em); width: 100%; padding: 7px 9px;
     color: var(--text-primary); background: var(--field);
     border: 1px solid var(--border); border-radius: 8px;
+  }
+  .ctrl select {
+    font: inherit; font-size: max(1rem, 1em); width: 100%; padding: 7px 9px;
+    color: var(--text-primary); background: var(--field);
+    border: 1px solid var(--border); border-radius: 8px;
+  }
+
+  /* ---- 进阶设定折叠区 & 回测口径折叠区 ---- */
+  .adv-box {
+    margin-top: 16px; padding-top: 12px; border-top: 1px solid var(--gridline);
+  }
+  .adv-box > summary {
+    list-style: none; cursor: pointer; display: flex; align-items: center;
+    justify-content: space-between; gap: 10px; flex-wrap: wrap;
+    font-size: 13px; font-weight: 600; color: var(--text-primary);
+    padding: 4px 0; user-select: none;
+  }
+  .adv-box > summary::-webkit-details-marker { display: none; }
+  .adv-title { display: inline-flex; align-items: center; gap: 7px; }
+  .adv-title::before {
+    content: "▸"; font-size: 12px; color: var(--text-muted);
+    display: inline-block; transition: transform 150ms ease-out;
+  }
+  .adv-box[open] > summary .adv-title::before { transform: rotate(90deg); }
+  .adv-summary {
+    font-size: 12px; font-weight: 400; color: var(--text-muted);
+  }
+  .adv-summary.active {
+    color: var(--series-1); font-weight: 500;
+  }
+  .adv-body { padding-top: 14px; }
+  .method-box { margin-top: 12px; }
+  .method-box > summary {
+    cursor: pointer; font-size: 12px; color: var(--text-secondary);
+    padding: 4px 0; user-select: none;
+  }
+  .bt-err {
+    font-size: 13px; color: var(--critical); margin: 12px 0 0;
+    padding: 10px 12px; border-radius: 8px;
+    background: color-mix(in srgb, var(--critical) 8%, transparent);
+  }
+  .bt-mixbar {
+    display: flex; align-items: center; justify-content: space-between; gap: 10px; flex-wrap: wrap;
+    margin-top: 10px; padding: 9px 12px; border-radius: 9px;
+    background: var(--page); border: 1px solid var(--border); font-size: 12px; color: var(--text-secondary);
+  }
+  .bt-mixbar b { color: var(--text-primary); font-family: var(--font-mono); font-variant-numeric: tabular-nums; }
+  .visually-hidden {
+    position: absolute; clip-path: inset(50%); overflow: hidden;
+    width: 1px; height: 1px; margin: -1px; padding: 0; border: 0; white-space: nowrap;
   }
 
   /* ---- hero + tiles ---- */
@@ -151,11 +233,13 @@
   /* 横向兜底单独放一层，里面只有 svg，不含浮层 */
   .chart-scroll { overflow-x: auto; }
   /* 按真实像素渲染，不用 viewBox 等比缩放——否则窗口变窄时高度会跟着被压扁 */
-  svg { display: block; overflow: hidden; }
+  svg { display: block; overflow: hidden; touch-action: pan-y; }
 
   /* 分段控件：贴在标题行右侧，不额外占一行高度 */
   .seg { display: inline-flex; gap: 2px; padding: 2px; flex: none;
          background: var(--page); border: 1px solid var(--border); border-radius: 9px; }
+  .seg.seg-full { display: flex; width: 100%; }
+  .seg.seg-full .btn { flex: 1; padding: 6px 8px; font-size: 12px; text-align: center; }
   .seg .btn { border: none; background: transparent; padding: 5px 13px; border-radius: 7px; }
   .seg .btn[aria-pressed="true"] { background: var(--surface-1); color: var(--text-primary);
          font-weight: 600; box-shadow: 0 1px 2px rgba(0,0,0,.07); }
@@ -181,9 +265,12 @@
 
   /* ---- table ---- */
   table { width: 100%; border-collapse: collapse; font-size: 13px; margin-top: 14px; }
-  th, td { text-align: right; padding: 7px 8px; border-bottom: 1px solid var(--gridline); }
+  th, td { text-align: right; padding: 7px 8px; border-bottom: 1px solid var(--gridline); white-space: nowrap; }
   td { font-family: var(--font-mono); font-variant-numeric: tabular-nums; }
-  th:first-child, td:first-child { text-align: left; font-family: var(--font-ui); }
+  th:first-child, td:first-child {
+    text-align: left; font-family: var(--font-ui);
+    position: sticky; left: 0; background: var(--surface-1); z-index: 1;
+  }
   th { color: var(--text-secondary); font-weight: 500; font-size: 12px; }
   .hidden { display: none; }
 
@@ -212,7 +299,7 @@
   .stage-row { display: grid; grid-template-columns: 34px 64px auto 92px 26px 28px; gap: 8px;
                align-items: center; margin-bottom: 8px; font-size: 12px; color: var(--text-secondary); }
   .stage-row .u { font-size: 12px; color: var(--text-muted); }
-  .stage-row input { font-family: var(--font-mono); font-size: 14px; font-variant-numeric: tabular-nums;
+  .stage-row input { font-family: var(--font-mono); font-size: max(1rem, 1em); font-variant-numeric: tabular-nums;
                width: 100%; padding: 7px 9px; color: var(--text-primary);
                background: var(--field); border: 1px solid var(--border); border-radius: 8px; }
   .stage-row input:focus-visible { outline: 2px solid var(--series-1); }
@@ -225,14 +312,50 @@
 
   /* ---- 可选项行 / 历史回测 ---- */
   .optrow { display: flex; align-items: center; gap: 8px; margin-top: 14px; font-size: 12px; color: var(--text-secondary); flex-wrap: wrap; }
-  .optrow input[type=checkbox] { accent-color: var(--series-1); }
+  .optrow input[type=checkbox] { accent-color: var(--series-1); width: 16px; height: 16px; cursor: pointer; }
+  .optrow label { cursor: pointer; }
   .optrow input[type=number] {
-    font-family: var(--font-mono); font-size: 14px; width: 74px; padding: 6px 8px;
+    font-family: var(--font-mono); font-size: max(1rem, 1em); width: 84px; padding: 6px 8px;
     color: var(--text-primary); background: var(--field);
     border: 1px solid var(--border); border-radius: 8px;
   }
-  .bt-opt { display: grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); gap: 14px; margin: 12px 0 2px; }
+  .bt-opt { display: grid; grid-template-columns: repeat(auto-fit, minmax(175px, 1fr)); gap: 14px; margin: 12px 0 2px; }
   .bt-note { font-size: 12px; color: var(--text-muted); margin: 12px 0 0; }
+
+  /* ---- 原生确认弹窗（防误触清空） ---- */
+  dialog.confirm-dlg {
+    background: var(--surface-1); color: var(--text-primary);
+    border: 1px solid var(--border); border-radius: 14px;
+    padding: 20px 22px; max-width: min(400px, calc(100vw - 32px)); width: 100%;
+    box-shadow: 0 12px 36px rgba(0,0,0,.22);
+  }
+  dialog:modal { overscroll-behavior: contain; }
+  dialog::backdrop {
+    background: rgba(0, 0, 0, 0.45);
+    overflow: hidden; overscroll-behavior: contain;
+  }
+  .confirm-dlg h1 { font-size: 16px; font-weight: 600; margin: 0 0 8px; }
+  .confirm-dlg p { font-size: 13px; color: var(--text-secondary); margin: 0 0 18px; line-height: 1.55; }
+  .confirm-dlg .dlg-actions { display: flex; justify-content: flex-end; gap: 10px; }
+
+  /* ---- 触屏与窄屏热区优化 ---- */
+  @media (pointer: coarse) {
+    .btn { min-height: 44px; padding: 8px 14px; }
+    .seg .btn { min-height: 40px; }
+    .ctrl input[type=number], .ctrl input[type=month], .ctrl select,
+    .optrow input[type=number], .stage-row input { min-height: 48px; }
+    .optrow input[type=checkbox] { width: 20px; height: 20px; }
+    .adv-box > summary, .method-box > summary { min-height: 44px; display: flex; align-items: center; }
+    .stage-row { grid-template-columns: 34px 68px auto 96px 26px 44px; }
+    .stage-row .x { min-width: 44px; min-height: 44px; }
+  }
+  @media (max-width: 600px) {
+    .wrap { padding: 20px 14px 56px; }
+    .card { padding: 16px; }
+    .hero-val { font-size: 36px; }
+    .sticky-inner { padding: 8px 14px; }
+    .sticky-hist { display: none; }
+  }
 
   /* ---- 落地执行与避坑要点 ---- */
   .guide h3 { font-size: 13px; font-weight: 600; margin: 18px 0 6px; }
@@ -244,6 +367,24 @@
 </style>
 </head>
 <body>
+<!-- 滚过核心结果卡后浮现：实时显示市值、历史中位数与章节快捷导航 -->
+<div class="sticky-bar" id="stickybar" aria-hidden="true">
+  <div class="sticky-inner">
+    <div class="sticky-metrics">
+      <span class="sticky-idx" id="sticky_idx">纳指100</span>
+      <span class="sticky-val" id="sticky_val">—</span>
+      <span class="sticky-hist" id="sticky_hist"></span>
+    </div>
+    <nav class="sticky-nav" aria-label="页面章节快捷跳转">
+      <a href="#sec-params">参数</a>
+      <a href="#sec-chart">曲线</a>
+      <a href="#sec-backtest">回测</a>
+      <a href="#sec-alloc">配比</a>
+      <a href="#sec-guide">指南</a>
+    </nav>
+  </div>
+</div>
+
 <div class="wrap">
 
   <header>
@@ -261,8 +402,9 @@
   </header>
   <p class="sub">按月复利计算。设定本金、每月定投、预期年化与费率，看十年后的构成。</p>
 
-  <!-- 参数：一行控件，作用于下面所有内容 -->
-  <div class="card">
+  <main>
+  <!-- 参数：首屏聚焦 5 个核心项，其余进阶项收进折叠区 -->
+  <div class="card" id="sec-params" data-section>
     <h2>参数设定</h2>
     <!-- 预设场景：一键填入一套典型参数，点完可以撤销（逻辑见 PRESETS） -->
     <div class="optrow" id="presets" style="margin-top:10px">
@@ -276,87 +418,99 @@
     <div class="controls" style="margin-top:14px">
       <div class="ctrl">
         <label for="n_lump">初始本金</label>
-        <div class="row"><input type="number" id="n_lump" min="0" max="2000000" step="1000" value="100000"><span class="unit">元</span></div>
-        <input type="range" id="r_lump" min="0" max="1000000" step="5000" value="100000">
+        <div class="row"><input type="number" id="n_lump" inputmode="numeric" min="0" max="2000000" step="1000" value="100000"><span class="unit">元</span></div>
+        <input type="range" id="r_lump" aria-label="初始本金滑块" min="0" max="1000000" step="5000" value="100000">
       </div>
       <div class="ctrl">
         <label for="n_mon">每月定投</label>
-        <div class="row"><input type="number" id="n_mon" min="0" max="100000" step="100" value="4167"><span class="unit">元/月</span></div>
-        <input type="range" id="r_mon" min="0" max="30000" step="100" value="4167">
+        <div class="row"><input type="number" id="n_mon" inputmode="numeric" min="0" max="100000" step="100" value="4167"><span class="unit">元/月</span></div>
+        <input type="range" id="r_mon" aria-label="每月定投滑块" min="0" max="30000" step="100" value="4167">
       </div>
       <div class="ctrl">
         <label for="n_rate">预期年化收益率</label>
-        <div class="row"><input type="number" id="n_rate" min="-10" max="30" step="0.5" value="12"><span class="unit">%</span></div>
-        <input type="range" id="r_rate" min="-10" max="30" step="0.5" value="12">
+        <div class="row"><input type="number" id="n_rate" inputmode="decimal" min="-10" max="30" step="0.5" value="12"><span class="unit">%</span></div>
+        <input type="range" id="r_rate" aria-label="预期年化收益率滑块" min="-10" max="30" step="0.5" value="12">
       </div>
       <div class="ctrl">
         <label for="n_fee">基金年费率</label>
-        <div class="row"><input type="number" id="n_fee" min="0" max="3" step="0.1" value="1"><span class="unit">%/年</span></div>
-        <input type="range" id="r_fee" min="0" max="3" step="0.1" value="1">
+        <div class="row"><input type="number" id="n_fee" inputmode="decimal" min="0" max="3" step="0.1" value="1"><span class="unit">%/年</span></div>
+        <input type="range" id="r_fee" aria-label="基金年费率滑块" min="0" max="3" step="0.1" value="1">
       </div>
       <div class="ctrl">
         <label for="n_yrs">投资年限</label>
-        <div class="row"><input type="number" id="n_yrs" min="1" max="40" step="1" value="10"><span class="unit">年</span></div>
-        <input type="range" id="r_yrs" min="1" max="40" step="1" value="10">
-      </div>
-      <div class="ctrl">
-        <label for="n_stop">第几年停止定投</label>
-        <div class="row"><input type="number" id="n_stop" min="0" max="40" step="1" value="0"><span class="unit">年 · 0=不停</span></div>
-        <input type="range" id="r_stop" min="0" max="40" step="1" value="0">
-      </div>
-      <div class="ctrl">
-        <label for="n_spend">停投后每月支出</label>
-        <div class="row"><input type="number" id="n_spend" min="0" max="200000" step="500" value="0"><span class="unit">元/月</span></div>
-        <input type="range" id="r_spend" min="0" max="50000" step="500" value="0">
-      </div>
-      <div class="ctrl">
-        <label for="d_start">起始年月</label>
-        <div class="row"><input type="month" id="d_start"></div>
-      </div>
-      <div class="ctrl">
-        <label for="n_infl">通胀率（购买力换算）</label>
-        <div class="row"><input type="number" id="n_infl" min="0" max="10" step="0.5" value="3"><span class="unit">%/年</span></div>
+        <div class="row"><input type="number" id="n_yrs" inputmode="numeric" min="1" max="40" step="1" value="10"><span class="unit">年</span></div>
+        <input type="range" id="r_yrs" aria-label="投资年限滑块" min="1" max="40" step="1" value="10">
       </div>
     </div>
+    <p class="note" id="netnote" style="margin-top:10px"></p>
 
-    <div class="optrow">
-      <input type="checkbox" id="k_growth">
-      <label for="k_growth">定投额逐年递增</label>
-      <input type="number" id="n_growth" min="0" max="30" step="0.5" value="5">
-      <span class="unit">%/年 —— 每年投 上年 ×（1＋增幅），分段调额那年重新起算</span>
-    </div>
-    <div class="optrow">
-      <input type="checkbox" id="k_spendinfl">
-      <label for="k_spendinfl">停投后支出随通胀逐年上调</label>
-      <span class="unit">—— 勾上后，「停投后每月支出」按今天的购买力理解：第 N 年每月实际取 支出 ×（1＋通胀率）^(N−1)</span>
-    </div>
-    <p class="note" id="netnote"></p>
+    <!-- 进阶设定折叠区：停投/取用、通胀、递增、目标反推、分段定投 -->
+    <details class="adv-box" id="adv_details">
+      <summary>
+        <span class="adv-title">进阶设定（停投取用 · 递增 · 目标反推 · 分段定投）</span>
+        <span class="adv-summary" id="adv_summary">默认未启用</span>
+      </summary>
+      <div class="adv-body">
+        <div class="controls">
+          <div class="ctrl">
+            <label for="n_stop">第几年停止定投</label>
+            <div class="row"><input type="number" id="n_stop" inputmode="numeric" min="0" max="40" step="1" value="0"><span class="unit">年 · 0=不停</span></div>
+            <input type="range" id="r_stop" aria-label="第几年停止定投滑块" min="0" max="40" step="1" value="0">
+          </div>
+          <div class="ctrl">
+            <label for="n_spend">停投后每月支出</label>
+            <div class="row"><input type="number" id="n_spend" inputmode="numeric" min="0" max="200000" step="500" value="0"><span class="unit">元/月</span></div>
+            <input type="range" id="r_spend" aria-label="停投后每月支出滑块" min="0" max="50000" step="500" value="0">
+          </div>
+          <div class="ctrl">
+            <label for="d_start">起始年月</label>
+            <div class="row"><input type="month" id="d_start"></div>
+          </div>
+          <div class="ctrl">
+            <label for="n_infl">通胀率（购买力换算）</label>
+            <div class="row"><input type="number" id="n_infl" inputmode="decimal" min="0" max="10" step="0.5" value="3"><span class="unit">%/年</span></div>
+          </div>
+        </div>
 
-    <!-- 目标反推：给定期末目标，算每月要投多少（逻辑见 drawGoal） -->
-    <div class="optrow">
-      <label for="n_goal">目标反推：期末想要</label>
-      <input type="number" id="n_goal" min="0" step="10" placeholder="如 200">
-      <span class="unit">万元</span>
-      <input type="checkbox" id="k_goalreal">
-      <label for="k_goalreal">按今天的购买力</label>
-      <span id="goalout"></span>
-      <button class="btn hidden" id="b_goal" type="button">填入「每月定投」</button>
-    </div>
-    <p class="note" id="goalhist"></p>
+        <div class="optrow">
+          <input type="checkbox" id="k_growth">
+          <label for="k_growth">定投额逐年递增</label>
+          <input type="number" id="n_growth" inputmode="decimal" min="0" max="30" step="0.5" value="5" aria-label="定投额逐年递增比例">
+          <span class="unit">%/年 —— 每年投 上年 ×（1＋增幅），分段调额那年重新起算</span>
+        </div>
+        <div class="optrow">
+          <input type="checkbox" id="k_spendinfl">
+          <label for="k_spendinfl">停投后支出随通胀逐年上调</label>
+          <span class="unit">—— 勾上后，「停投后每月支出」按今天的购买力理解：第 N 年每月实际取 支出 ×（1＋通胀率）^(N−1)</span>
+        </div>
 
-    <!-- 分段定投：某年起改每月投入额（金额填 0 = 该年起停投） -->
-    <div class="stages">
-      <div class="stage-head">
-        <h3>分段定投（可选）</h3>
-        <button class="btn" id="stage_add" type="button">＋ 加一个时间段</button>
+        <!-- 目标反推：给定期末目标，算每月要投多少（逻辑见 drawGoal；点击按钮或回车再回填） -->
+        <div class="optrow">
+          <label for="n_goal">目标反推：期末想要</label>
+          <input type="number" id="n_goal" inputmode="decimal" min="0" step="10" placeholder="如 200" enterkeyhint="done">
+          <span class="unit">万元</span>
+          <input type="checkbox" id="k_goalreal">
+          <label for="k_goalreal">按今天的购买力</label>
+          <span id="goalout" aria-live="polite"></span>
+          <button class="btn hidden" id="b_goal" type="button">填入「每月定投」</button>
+        </div>
+        <p class="note" id="goalhist"></p>
+
+        <!-- 分段定投：某年起改每月投入额（金额填 0 = 该年起停投） -->
+        <div class="stages">
+          <div class="stage-head">
+            <h3>分段定投（可选）</h3>
+            <button class="btn" id="stage_add" type="button">＋ 加一个时间段</button>
+          </div>
+          <p class="stage-empty" id="stage_empty">不设分段就全程按上面的「每月定投」。加一段即可表达：涨薪后每月多投、第 3 年起投 6000、第 8 年起停止……</p>
+          <div id="stage_rows"></div>
+          <p class="stage-chain" id="stage_chain"></p>
+        </div>
       </div>
-      <p class="stage-empty" id="stage_empty">不设分段就全程按上面的「每月定投」。加一段即可表达：涨薪后每月多投、第 3 年起投 6000、第 8 年起停止……</p>
-      <div id="stage_rows"></div>
-      <p class="stage-chain" id="stage_chain"></p>
-    </div>
+    </details>
 
     <!-- 参数持久化 -->
-    <div class="optrow" style="margin-top:16px; padding-top:12px; border-top:1px solid var(--gridline)">
+    <div class="optrow" style="margin-top:14px; padding-top:12px; border-top:1px solid var(--gridline)">
       <input type="checkbox" id="k_save" checked>
       <label for="k_save">记住这次输入（保存在本浏览器，下次打开自动恢复）</label>
       <button class="btn" id="b_share" type="button" style="margin-left:auto">复制分享链接</button>
@@ -366,7 +520,7 @@
   </div>
 
   <!-- 结果 -->
-  <div class="card">
+  <div class="card" id="herocard">
     <div class="k" style="font-size:12px;color:var(--text-secondary)">期末账户市值</div>
     <div class="hero-val" id="hero">—</div>
     <p class="hero-sub" id="herosub"></p>
@@ -397,7 +551,7 @@
   </div>
 
   <!-- 图表 -->
-  <div class="card">
+  <div class="card" id="sec-chart" data-section>
     <div class="card-head">
       <h2>资产构成随时间变化</h2>
       <div class="head-tools">
@@ -421,7 +575,8 @@
     </div>
     <div id="tableview" class="hidden" style="overflow-x:auto">
       <table>
-        <thead><tr><th>年份</th><th>累计本金</th><th>投资收益</th><th>账户市值</th><th>当年投入</th><th>当年支取</th><th>年收益（停投）</th></tr></thead>
+        <caption class="visually-hidden">各年度资产构成与现金流明细</caption>
+        <thead><tr><th scope="col">年份</th><th scope="col">累计本金</th><th scope="col">投资收益</th><th scope="col">账户市值</th><th scope="col">当年投入</th><th scope="col">当年支取</th><th scope="col">年收益（停投）</th></tr></thead>
         <tbody id="tbody"></tbody>
       </table>
     </div>
@@ -442,24 +597,24 @@
   </div>
 
   <!-- 历史回测：把方案放到真实行情里 -->
-  <div class="card">
+  <div class="card" id="sec-backtest" data-section>
     <h2 id="backtest-title">历史回测 · 同样的方案放在真实行情里</h2>
     <div class="bt-opt">
       <div class="ctrl">
-        <label for="s_btidx">标的（与页头的切换同步）</label>
+        <label for="s_btidx">标的（与页头同步）</label>
         <div class="row">
-          <select id="s_btidx" style="font:inherit;font-size:14px;width:100%;padding:7px 9px;color:var(--text-primary);background:var(--field);border:1px solid var(--border);border-radius:8px">
+          <select id="s_btidx">
             <option value="ndx" selected>纳斯达克100</option>
             <option value="spx">标普500</option>
             <option value="qqq">QQQ</option>
-            <option value="mix">组合（比例在下面的「配置比例」里设）</option>
+            <option value="mix">组合（配置比例见下方）</option>
           </select>
         </div>
       </div>
       <div class="ctrl">
         <label for="s_btwin">回测窗口</label>
         <div class="row">
-          <select id="s_btwin" style="font:inherit;font-size:14px;width:100%;padding:7px 9px;color:var(--text-primary);background:var(--field);border:1px solid var(--border);border-radius:8px">
+          <select id="s_btwin">
             <option value="0">全部历史（自数据起点）</option>
             <option value="30">最近 30 年的起点</option>
             <option value="20" selected>最近 20 年的起点</option>
@@ -469,46 +624,62 @@
       </div>
       <div class="ctrl">
         <label for="s_btdiv">分红再投资</label>
-        <div class="row">
-          <select id="s_btdiv" style="font:inherit;font-size:14px;width:100%;padding:7px 9px;color:var(--text-primary);background:var(--field);border:1px solid var(--border);border-radius:8px">
-            <option value="1" selected>加回分红（按指数股息率近似）</option>
-            <option value="0">不含分红（纯价格指数）</option>
-          </select>
+        <div class="seg seg-full" data-sync-select="s_btdiv" role="group" aria-label="分红再投资">
+          <button class="btn" type="button" data-val="1" aria-pressed="true">含分红</button>
+          <button class="btn" type="button" data-val="0" aria-pressed="false">不含分红</button>
         </div>
+        <select id="s_btdiv" class="visually-hidden" tabindex="-1" aria-hidden="true">
+          <option value="1" selected>加回分红（按指数股息率近似）</option>
+          <option value="0">不含分红（纯价格指数）</option>
+        </select>
       </div>
       <div class="ctrl">
         <label for="s_btfx">汇率</label>
-        <div class="row">
-          <select id="s_btfx" style="font:inherit;font-size:14px;width:100%;padding:7px 9px;color:var(--text-primary);background:var(--field);border:1px solid var(--border);border-radius:8px">
-            <option value="0" selected>不计汇率（按美元算涨跌）</option>
-            <option value="1">计入汇率（折成人民币）</option>
-          </select>
+        <div class="seg seg-full" data-sync-select="s_btfx" role="group" aria-label="汇率">
+          <button class="btn" type="button" data-val="0" aria-pressed="true">不计汇率</button>
+          <button class="btn" type="button" data-val="1" aria-pressed="false">折人民币</button>
         </div>
+        <select id="s_btfx" class="visually-hidden" tabindex="-1" aria-hidden="true">
+          <option value="0" selected>不计汇率（按美元算涨跌）</option>
+          <option value="1">计入汇率（折成人民币）</option>
+        </select>
       </div>
-      <div class="ctrl">
+      <div class="ctrl" id="rebal_ctrl">
         <label for="s_rebalance">组合再平衡</label>
-        <div class="row">
-          <select id="s_rebalance" style="font:inherit;font-size:14px;width:100%;padding:7px 9px;color:var(--text-primary);background:var(--field);border:1px solid var(--border);border-radius:8px">
-            <option value="1" selected>每月恢复目标比例</option>
-            <option value="3">每季度恢复目标比例</option>
-            <option value="new">仅用新增资金调整比例</option>
-          </select>
+        <div class="seg seg-full" data-sync-select="s_rebalance" role="group" aria-label="组合再平衡">
+          <button class="btn" type="button" data-val="1" aria-pressed="true">按月</button>
+          <button class="btn" type="button" data-val="3" aria-pressed="false">按季</button>
+          <button class="btn" type="button" data-val="new" aria-pressed="false">仅新增</button>
         </div>
+        <select id="s_rebalance" class="visually-hidden" tabindex="-1" aria-hidden="true">
+          <option value="1" selected>每月恢复目标比例</option>
+          <option value="3">每季度恢复目标比例</option>
+          <option value="new">仅用新增资金调整比例</option>
+        </select>
       </div>
+    </div>
+    <!-- 选中组合时就近显示当前权重摘要与直达按钮 -->
+    <div class="bt-mixbar hidden" id="bt_mixbar">
+      <span id="bt_mixbar_txt"></span>
+      <a class="btn" href="#sec-alloc" style="text-decoration:none">调整配置比例</a>
     </div>
     <!-- 止盈对照：按规则卖出的方案，和「一直拿着」逐个窗口比（规则见 tpRule，计算在 backtest 里） -->
     <div class="optrow">
       <input type="checkbox" id="k_tp">
       <label for="k_tp">止盈对照：持仓浮盈达到</label>
-      <input type="number" id="n_tpx" min="5" max="500" step="5" value="50">
+      <input type="number" id="n_tpx" inputmode="decimal" min="5" max="500" step="5" value="50" aria-label="止盈触发浮盈百分比">
       <span class="unit">% 就卖出</span>
-      <input type="number" id="n_tpy" min="5" max="100" step="5" value="50">
-      <span class="unit">% 持仓 —— 每月看一次；卖出的钱转货基（1.5%/年）不再买回，剩余持仓的成本重新起算，定投照常</span>
+      <input type="number" id="n_tpy" inputmode="decimal" min="5" max="100" step="5" value="50" aria-label="止盈卖出持仓比例">
+      <span class="unit">% 持仓 —— 每月看一次；卖出的钱转货基（1.5%/年）不再买回，剩余持仓成本重算，定投照常</span>
     </div>
-    <p class="bt-note" id="btnote"></p>
     <p class="bt-note" id="btmeta"></p>
+    <p class="bt-err hidden" id="bterr" role="alert"></p>
     <div class="dd" id="btgrid"></div>
-    <details style="margin-top:12px">
+    <details class="method-box" id="bt_method">
+      <summary>计算口径与数据说明</summary>
+      <p class="bt-note" id="btnote" style="margin-top:6px"></p>
+    </details>
+    <details style="margin-top:10px">
       <summary style="cursor:pointer;font-size:12px;color:var(--text-secondary)">更多指标（年化收益率、净值回撤、跑赢预期、一次性投入与止盈对照）</summary>
       <div class="dd" id="btgrid2"></div>
     </details>
@@ -534,8 +705,8 @@
       </div>
     </div>
 
-    <!-- 同一套方案放进三个标的（逻辑见 drawCmp） -->
-    <details style="margin-top:18px">
+    <!-- 同一套方案放进三个标的（展开时懒计算，逻辑见 drawCmp） -->
+    <details id="btcmp_details" style="margin-top:18px">
       <summary style="cursor:pointer;font-size:13px;font-weight:600">三个标的并排对比</summary>
       <div id="btcmp" style="overflow-x:auto"></div>
       <p class="bt-note" id="btcmpnote"></p>
@@ -544,15 +715,15 @@
   </div>
 
   <!-- 配置比例：自定「组合」的成分比例，并把几种常见配比放进同一套方案并排回测（逻辑见 drawAlloc） -->
-  <div class="card">
+  <div class="card" id="sec-alloc" data-section>
     <h2>配置比例 · 钱在纳指、标普和现金之间怎么分</h2>
     <p class="note">填好比例就得到一个「组合」，可以像单个指数一样回测。下面的表把几种常见配比放进同一套方案里比。</p>
     <div class="optrow">
       <label for="n_mixn">纳指100</label>
-      <input type="number" id="n_mixn" min="0" max="100" step="any" value="60" required>
+      <input type="number" id="n_mixn" inputmode="decimal" min="0" max="100" step="any" value="60" required>
       <span class="unit">%</span>
       <label for="n_mixs">标普500</label>
-      <input type="number" id="n_mixs" min="0" max="100" step="any" value="30" required>
+      <input type="number" id="n_mixs" inputmode="decimal" min="0" max="100" step="any" value="30" required>
       <span class="unit">%</span>
       <span id="mixout" aria-live="polite"></span>
       <button class="btn" id="b_mix" type="button">用这个组合回测</button>
@@ -562,7 +733,7 @@
   </div>
 
   <!-- 落地执行与避坑要点：静态文字，只有第一条是按当前方案算出来的（逻辑见 drawGuide） -->
-  <div class="card guide">
+  <div class="card guide" id="sec-guide" data-section>
     <h2>落地执行与避坑要点</h2>
     <p class="note">上面算的是「照做会怎样」，这里是「怎么照做」。都是通用的执行习惯和常见问题，不是投资建议。</p>
 
@@ -591,11 +762,23 @@
     <p class="bt-note">限购额度、费率、溢价、到账时间都会变，以基金公告和交易软件里显示的为准。</p>
   </div>
 
+  </main>
+
   <footer>
     按月复利，定投于每月末投入；费率以「年化收益率 − 年费率」的方式近似扣除。<br>
     结果为数学推算，不构成投资建议——历史收益率不保证未来重现。
   </footer>
 </div>
+
+<!-- 原生模态确认弹窗：清空恢复默认前二次确认，防误触丢失分段与参数 -->
+<dialog id="reset_dlg" class="confirm-dlg" closedby="any" aria-labelledby="reset_dlg_title">
+  <h1 id="reset_dlg_title">确认清空并恢复默认？</h1>
+  <p>这会清除你在本浏览器保存的所有参数、分段定投以及深浅色偏好，并刷新页面。</p>
+  <form method="dialog" class="dlg-actions">
+    <button class="btn" type="submit" value="cancel" autofocus>取消</button>
+    <button class="btn btn-danger" type="submit" value="confirm">确认清空</button>
+  </form>
+</dialog>
 
   <!-- 每日更新的数据(服务器 cron 生成);加载失败就用上面的内嵌数据 -->
   <script src="ndx-data.js"></script>
@@ -729,11 +912,37 @@
   document.getElementById("b_share").addEventListener("click", function () {
     var btn = this, snapshot = { v: MODEL_VERSION, state: getState(), data: shareDataStamp() };
     var url = location.origin + location.pathname + "#s=" + encodeURIComponent(JSON.stringify(snapshot));
-    function done() { btn.textContent = "已复制"; setTimeout(function () { btn.textContent = "复制分享链接"; }, 1500); }
+    function done() {
+      btn.textContent = "已复制";
+      document.getElementById("share-note").textContent = "分享链接已复制到剪贴板，发送给他人打开即可复现当前参数。";
+      setTimeout(function () { btn.textContent = "复制分享链接"; }, 1500);
+    }
     if (navigator.clipboard && navigator.clipboard.writeText)
       navigator.clipboard.writeText(url).then(done, function () { window.prompt("复制这个链接：", url); });
     else window.prompt("复制这个链接：", url);
   });
+  // 隐藏的 <select> 与可视化分段按钮双向同步，确保既有状态保存和回测逻辑无缝复用
+  function syncSegControls() {
+    Array.prototype.forEach.call(document.querySelectorAll("[data-sync-select]"), function (grp) {
+      var sel = document.getElementById(grp.getAttribute("data-sync-select"));
+      if (!sel) return;
+      Array.prototype.forEach.call(grp.querySelectorAll("button[data-val]"), function (b) {
+        b.setAttribute("aria-pressed", b.getAttribute("data-val") === sel.value ? "true" : "false");
+      });
+    });
+  }
+  Array.prototype.forEach.call(document.querySelectorAll("[data-sync-select]"), function (grp) {
+    var sel = document.getElementById(grp.getAttribute("data-sync-select"));
+    if (!sel) return;
+    grp.addEventListener("click", function (e) {
+      var b = e.target.closest("button[data-val]");
+      if (!b || b.getAttribute("data-val") === sel.value) return;
+      sel.value = b.getAttribute("data-val");
+      syncSegControls();
+      render(); saveState();
+    });
+  });
+
   // 把一份状态(getState 的格式,可以只有其中一部分字段)套到页面控件上。只改控件,不重算——调用方自己 render
   function applyState(s) {
     var f = s.f || {}, ss = s.s || {};
@@ -747,6 +956,7 @@
       if (SIMPLE[k].type === "checkbox") SIMPLE[k].checked = !!ss[k];
       else SIMPLE[k].value = ss[k];
     });
+    syncSegControls();
     if (s.stages) {
       stages = s.stages.map(function (x) { return { id: ++stageSeq, from: x.from, amt: x.amt }; });
       renderStageRows();
@@ -771,11 +981,34 @@
       } else applyState(saved); // 兼容旧版仅含参数的分享链接与本地存档
     } catch (e) { /* 存档坏了就用默认值 */ }
   }
-  document.getElementById("b_reset").addEventListener("click", function () {
+  // 清空恢复默认：通过原生模态 <dialog> 二次确认，防误触丢失参数与分段
+  function performReset() {
     try { localStorage.removeItem(SKEY); localStorage.removeItem(THEME_KEY); } catch (e) {}   // 深/浅色也回到跟随系统
     try { history.replaceState(null, "", location.pathname); } catch (e) {}   // 去掉分享参数,否则刷新又恢复回来
     location.reload();
+  }
+  var resetDlg = document.getElementById("reset_dlg");
+  document.getElementById("b_reset").addEventListener("click", function () {
+    if (resetDlg && typeof resetDlg.showModal === "function") resetDlg.showModal();
+    else if (window.confirm("确认清空并恢复默认？这会清除本浏览器保存的所有参数与分段定投。")) performReset();
   });
+  if (resetDlg) {
+    resetDlg.addEventListener("close", function () {
+      var val = resetDlg.returnValue;
+      resetDlg.returnValue = "";
+      if (val === "confirm") performReset();
+    });
+    // 为尚不支持 closedby="any" 的浏览器（如 Safari）补充轻点遮罩关闭兜底
+    if (!("closedBy" in HTMLDialogElement.prototype)) {
+      var outside = function (e) {
+        var r = resetDlg.getBoundingClientRect();
+        return e.clientX < r.left || e.clientX > r.right || e.clientY < r.top || e.clientY > r.bottom;
+      };
+      var pressedOut = false;
+      resetDlg.addEventListener("pointerdown", function (e) { pressedOut = outside(e); });
+      resetDlg.addEventListener("pointerup", function (e) { if (pressedOut && outside(e)) resetDlg.close(); });
+    }
+  }
 
   /* ---- 预设场景 ----
      一键填入一套典型方案。只动「投多少、投多久、怎么取」这几项,标的、收益率、费率、回测选项保持原样;
@@ -800,7 +1033,7 @@
     for (k in p.s) st.s[k] = p.s[k];               // 预设没有 s 这一项时,这个循环一次也不走
     applyState(st);
     render();
-    if (p.solve) applyGoal();                      // 目标已经填好:按它反推出每月定投并填进去
+    if (p.solve) applyGoal(true);                  // 目标已经填好:按它反推出每月定投并填进去（保留预设前的撤销点）
     saveState();
     undoBtn.classList.remove("hidden");
   });
@@ -879,15 +1112,17 @@
 
       var lb1 = document.createElement("span"); lb1.textContent = "从第";
       var y = document.createElement("input");
-      y.type = "number"; y.min = 1; y.max = 60; y.step = 1; y.value = s.from;
+      y.type = "number"; y.inputMode = "numeric"; y.min = 1; y.max = 60; y.step = 1; y.value = s.from;
+      y.setAttribute("aria-label", "第" + (idx + 1) + "段起始年份");
       y.addEventListener("input", function () { s.from = y.value; render(); saveState(); });
       var lb2 = document.createElement("span"); lb2.textContent = "年起 · 每月";
       var a = document.createElement("input");
-      a.type = "number"; a.min = 0; a.max = 200000; a.step = 100; a.value = s.amt;
+      a.type = "number"; a.inputMode = "numeric"; a.min = 0; a.max = 200000; a.step = 100; a.value = s.amt;
+      a.setAttribute("aria-label", "第" + (idx + 1) + "段每月定投金额");
       a.addEventListener("input", function () { s.amt = a.value; render(); saveState(); });
       var u = document.createElement("span"); u.className = "u"; u.textContent = "元";
       var x = document.createElement("button");
-      x.className = "x"; x.type = "button"; x.title = "删除"; x.textContent = "✕";
+      x.className = "x"; x.type = "button"; x.title = "删除"; x.setAttribute("aria-label", "删除第" + (idx + 1) + "个时间段"); x.textContent = "✕";
       x.addEventListener("click", function () { stages.splice(idx, 1); renderStageRows(); render(); saveState(); });
 
       row.append(lb1, y, lb2, a, u, x);
@@ -1205,12 +1440,20 @@
       g.cross.setAttribute("opacity", 0);
       g.dot1.setAttribute("opacity", 0); g.dot2.setAttribute("opacity", 0);
     }
-    g.rect.addEventListener("mousemove", show);
-    g.rect.addEventListener("mouseleave", hide);
-    g.rect.addEventListener("touchmove", function (e) {
-      if (e.touches[0]) { show(e.touches[0]); e.preventDefault(); }
-    }, { passive: false });
-    g.rect.addEventListener("touchend", hide);
+    // 统一使用 Pointer Events：触屏轻点/横向拖动看浮层，纵向滑屏交还给页面（配合 svg touch-action: pan-y）
+    var activePointer = null;
+    g.rect.addEventListener("pointerdown", function (e) {
+      activePointer = e.pointerId;
+      show(e);
+    });
+    g.rect.addEventListener("pointermove", function (e) {
+      if (e.pointerType === "mouse" || activePointer === e.pointerId) show(e);
+    });
+    g.rect.addEventListener("pointerup", function () { activePointer = null; });
+    g.rect.addEventListener("pointercancel", function () { activePointer = null; hide(); });
+    g.rect.addEventListener("pointerleave", function (e) {
+      if (e.pointerType === "mouse") hide();
+    });
   }
 
   /* ---------------- 表格 / 回撤 / 概要 ---------------- */
@@ -1328,9 +1571,25 @@
         mult = last.prin > 0 ? last.val / last.prin : 0;
 
     document.getElementById("hero").textContent = yuan(last.val);
+    document.getElementById("sticky_val").textContent = yuan(last.val);
+    document.getElementById("sticky_idx").textContent = IDX[idxKey()].name;
     document.getElementById("herosub").textContent =
       "投入本金 " + yuan(last.prin) + "，" + (gain >= 0 ? "赚 " : "亏 ") + yuan(Math.abs(gain)) +
       (d.drawn > 0 ? "，已取出 " + yuan(d.drawn) : "") + "，历时 " + d.yrs + " 年";
+
+    // 更新「进阶设定」折叠头摘要，让折叠状态下也一目了然当前开启了哪些高级参数
+    var advTags = [];
+    if (d.stop > 0 && d.stop < d.yrs) {
+      advTags.push("第 " + d.stop + " 年停投" + (d.spend > 0 ? "·月取 " + yuan(d.spend) : ""));
+    }
+    if (d.growthOn && d.growth > 0) advTags.push("年增 +" + (d.growth * 100).toFixed(1) + "%");
+    if (parseFloat(SIMPLE.goal.value) > 0) advTags.push("目标 " + parseFloat(SIMPLE.goal.value) + " 万");
+    if (stages.length > 0) advTags.push(stages.length + " 段定投");
+    var advSumEl = document.getElementById("adv_summary");
+    if (advSumEl) {
+      advSumEl.textContent = advTags.length ? "已启用：" + advTags.join(" · ") : "默认未启用";
+      advSumEl.classList.toggle("active", advTags.length > 0);
+    }
 
     document.getElementById("t_prin").textContent = yuan(last.prin);
     document.getElementById("t_prin_m").textContent = d.stDesc
@@ -1378,6 +1637,7 @@
     return hi;
   }
   var goalAmt = 0, goalMon = null, goalOut = document.getElementById("goalout"), goalBtn = document.getElementById("b_goal");
+  var goalBaseText = "";
   function drawGoal(d) {
     var goal = parseFloat(SIMPLE.goal.value) * 1e4, realTxt = "";
     goalMon = null;
@@ -1388,33 +1648,39 @@
     }
     goalAmt = goal > 0 ? goal : 0;      // 回测那边按历史行情再反推一遍时用(见 solveHistMon)
     if (goal > 0) {
-      var hist = backtest(Object.assign({}, d, { goalTarget: goal }), idxKey(), null, false, false);
-      var probText = !hist.err ? "\n按现在填的每月定投 " + Math.round(d.mon).toLocaleString("zh-CN") + " 元，历史滚动窗口中期末账户余额达标 " +
-        pctTxt(hist.goalPct).replace("&lt;", "<").replace("&gt;", ">") + "（" + hist.count + " 个窗口；非未来概率）。" : "\n" + hist.err;
       var m = solveMon(goal);
-      if (m === 0) goalOut.textContent = "→ 现有本金（加分段投入）已经够，不用再每月定投" + probText;
-      else if (m == null) goalOut.textContent = "→ 分段定投已覆盖全部年份，「每月定投」不起作用，请改分段金额" + probText;
+      if (m === 0) goalBaseText = "→ 现有本金（加分段投入）已经够，不用再每月定投";
+      else if (m == null) goalBaseText = "→ 分段定投已覆盖全部年份，「每月定投」不起作用，请改分段金额";
       else {
         goalMon = m;
-        goalOut.textContent = "→ 每月需投 " + goalMon.toLocaleString("zh-CN") + " 元（" + realTxt + "按净年化 " +
+        goalBaseText = "→ 每月需投 " + goalMon.toLocaleString("zh-CN") + " 元（" + realTxt + "按净年化 " +
           (d.net * 100).toFixed(1) + "%、" + d.yrs + " 年" +
           (d.growthOn ? "，此为第 1 年金额，之后逐年 +" + (d.growth * 100).toFixed(1) + "%" : "") +
           (d.stop > 0 && d.stop < d.yrs ? "，第 " + d.stop + " 年停投" +
-            (d.spend > 0 ? "、取用首月取 " + yuan(d.spendAt(d.stop * 12)) + (d.spendInfl ? "，以后随通胀上调" : "") : "") : "") + "）" + probText;
+            (d.spend > 0 ? "、取用首月取 " + yuan(d.spendAt(d.stop * 12)) + (d.spendInfl ? "，以后随通胀上调" : "") : "") : "") + "）";
       }
-    } else goalOut.textContent = "—— 填个目标，算出每月要投多少";
+      goalOut.textContent = goalBaseText;
+    } else {
+      goalBaseText = "";
+      goalOut.textContent = "—— 填个目标，算出每月要投多少";
+    }
     goalBtn.classList.toggle("hidden", goalMon == null);
   }
-  function applyGoal() {
+  function applyGoal(keepUndo) {
     if (goalMon == null) return;
+    if (!keepUndo) {
+      undoState = getState();
+      undoBtn.classList.remove("hidden");
+    }
     el.mon.n.value = Math.min(goalMon, parseFloat(el.mon.n.max));
     el.mon.r.value = Math.min(parseFloat(el.mon.r.max), readVal("mon"));
     render(); saveState();
   }
-  goalBtn.addEventListener("click", applyGoal);
-  // 填完目标按回车或点到别处,就直接把算出的金额填进「每月定投」(打字过程中不动)
-  SIMPLE.goal.addEventListener("change", applyGoal);
-  SIMPLE.goalReal.addEventListener("change", applyGoal);
+  goalBtn.addEventListener("click", function () { applyGoal(false); });
+  // 仅在点击「填入」按钮或按回车（且非输入法组合中）时回填「每月定投」，避免失焦意外覆盖原输入
+  SIMPLE.goal.addEventListener("keydown", function (e) {
+    if (e.key === "Enter" && !e.isComposing) { e.preventDefault(); applyGoal(false); }
+  });
 
   /* ---------------- 历史回测 ---------------- */
   // 数据三层优先级:浏览器实时(JSONP,东财月K,访问者网络决定成败)
@@ -1474,6 +1740,9 @@
     Array.prototype.forEach.call(idxSeg.querySelectorAll("button"), function (b) {
       b.setAttribute("aria-pressed", b.getAttribute("data-idx") === key ? "true" : "false");
     });
+    // 「组合再平衡」仅在选择组合或查看配置表时有意义，单指数下视觉弱化但保持可调
+    var rebalCtrl = document.getElementById("rebal_ctrl");
+    if (rebalCtrl) rebalCtrl.style.opacity = key === "mix" ? "1" : "0.75";
   }
   idxSeg.addEventListener("click", function (e) {
     var b = e.target.closest("button[data-idx]");
@@ -1914,8 +2183,8 @@
     var prin = d.pts[d.pts.length - 1].prin;
     var pc = function (v) { return (v >= 0 ? "＋" : "−") + Math.abs(v * 100).toFixed(0) + "%"; };
     var tk = d.spend > 0 && d.stop > 0 && d.stop < d.yrs;      // 有「停投后每月取钱」的阶段:多一列耗尽概率
-    var h = "<table><thead><tr><th>标的</th><th>数据起点</th><th>起点数</th><th>中位数结局</th><th>最惨</th><th>最好</th><th>亏损概率</th><th>途中最大浮亏</th>" +
-            (tk ? "<th>途中耗尽概率</th>" : "") + "</tr></thead><tbody>";
+    var h = '<table><caption class="visually-hidden">三个标的在相同方案下的历史回测对比</caption><thead><tr><th scope="col">标的</th><th scope="col">数据起点</th><th scope="col">起点数</th><th scope="col">中位数结局</th><th scope="col">最惨</th><th scope="col">最好</th><th scope="col">亏损概率</th><th scope="col">途中最大浮亏</th>' +
+            (tk ? '<th scope="col">途中耗尽概率</th>' : "") + "</tr></thead><tbody>";
     ["ndx", "spx", "qqq"].forEach(function (k) {
       var r = k === cur ? curBt : backtest(d, k, null, false, false);
       h += "<tr" + (k === cur ? ' style="font-weight:600"' : "") + "><td>" + IDX[k].name + "</td>";
@@ -1940,7 +2209,7 @@
       { name: "纳指80 / 标普20", w: [0.8, 0.2, 0] },
       { name: "纳指60 / 标普30 / 现金10", w: [0.6, 0.3, 0.1] },
       { name: "纳指40 / 标普40 / 现金20", w: [0.4, 0.4, 0.2] }];
-    var h = "<table><thead><tr><th>配置</th><th>起点数</th><th>中位期末余额</th><th>亏损概率</th><th>年化 IRR 中位数</th><th>净值最大回撤</th></tr></thead><tbody>", sample;
+    var h = '<table><caption class="visually-hidden">不同资产配置比例的历史回测对比</caption><thead><tr><th scope="col">配置</th><th scope="col">起点数</th><th scope="col">中位期末余额</th><th scope="col">亏损概率</th><th scope="col">年化 IRR 中位数</th><th scope="col">净值最大回撤</th></tr></thead><tbody>', sample;
     var results = new Map();
     configs.forEach(function (c) {
       var id = c.w && c.w.join(","), r = { err: true, brief: "比例无效" };
@@ -2133,10 +2402,19 @@
       btTip.style.left = left + "px"; btTip.style.top = M.t + "px";
     }
     function hide() { cross.setAttribute("opacity", 0); btTip.classList.remove("on"); }
-    rect.addEventListener("mousemove", function (e) { show(e.clientX); });
-    rect.addEventListener("mouseleave", hide);
-    rect.addEventListener("touchmove", function (e) { if (e.touches[0]) show(e.touches[0].clientX); }, { passive: true });
-    rect.addEventListener("touchend", hide);
+    var btActivePtr = null;
+    rect.addEventListener("pointerdown", function (e) {
+      btActivePtr = e.pointerId;
+      show(e.clientX);
+    });
+    rect.addEventListener("pointermove", function (e) {
+      if (e.pointerType === "mouse" || btActivePtr === e.pointerId) show(e.clientX);
+    });
+    rect.addEventListener("pointerup", function () { btActivePtr = null; });
+    rect.addEventListener("pointercancel", function () { btActivePtr = null; hide(); });
+    rect.addEventListener("pointerleave", function (e) {
+      if (e.pointerType === "mouse") hide();
+    });
   }
 
   // 按历史行情反推:每月投多少,才有一半的历史窗口期末够到目标(精确到 50 元)。
@@ -2156,38 +2434,81 @@
     return hi;
   }
 
+  // 避免重任务阻塞主线程（INP 优化）：优先 scheduler.yield()，不支持时降级 setTimeout(0)
+  function yieldToMain() {
+    if (window.scheduler && typeof window.scheduler.yield === "function") return window.scheduler.yield();
+    return new Promise(function (resolve) { setTimeout(resolve, 0); });
+  }
+
+  var btCmpDetails = document.getElementById("btcmp_details"),
+      btCmpDirty = false,
+      lastBtCtx = null,
+      btRunId = 0;
+
+  if (btCmpDetails) {
+    btCmpDetails.addEventListener("toggle", function () {
+      if (btCmpDetails.open && btCmpDirty && lastBtCtx) {
+        btCmpDirty = false;
+        drawCmp(lastBtCtx.d, lastBtCtx.key, lastBtCtx.bt);
+      }
+    });
+  }
+
+  function updateMixBar(key) {
+    var bar = document.getElementById("bt_mixbar"), txt = document.getElementById("bt_mixbar_txt");
+    if (!bar || !txt) return;
+    if (key !== "mix") { bar.classList.add("hidden"); return; }
+    var w = mixWeights();
+    bar.classList.remove("hidden");
+    txt.innerHTML = w
+      ? "当前组合权重：<b>纳指 " + pc1(w[0]) + "</b> · <b>标普 " + pc1(w[1]) + "</b> · <b>现金 " + pc1(w[2]) + "</b>"
+      : "当前组合比例无效（纳指 + 标普须在 0～100% 之间）";
+  }
+
   function drawBacktest(d) {
+    var runId = ++btRunId;
     var grid = document.getElementById("btgrid"),
         note = document.getElementById("btnote"),
-        since = document.getElementById("btsince");
+        errEl = document.getElementById("bterr"),
+        since = document.getElementById("btsince"),
+        stickyHist = document.getElementById("sticky_hist");
     var key = idxKey(), meta = key === "mix" ? mixData() : idxData(key);
+    updateMixBar(key);
     var bt = backtest(d);
+    lastBtCtx = { d: d, key: key, bt: bt };
+
     var metaText = "";
     if (meta && !meta.err) {      // 组合比例无效时 mixData 返回的是 {err},没有行情可描述
-      metaText = "数据 " + meta.start + " 至 " + meta.end + "；来源 " + (meta.source || (meta.live ? "东方财富实时" : meta.ext ? "静态文件，来源未记录" : "页面内嵌快照")) +
-        (key === "mix" ? "；再平衡 " + ({ "1": "每月", "3": "每季度", "new": "仅新增资金" }[(SIMPLE.rebalance && SIMPLE.rebalance.value) || "1"]) : "") +
-        (meta.updated ? "；更新于 " + meta.updated : "；无更新日期");
+      metaText = "数据 " + meta.start + "～" + meta.end +
+        (bt && !bt.err ? " · 滚动 " + bt.count + " 个 " + d.yrs + " 年窗口" : "") +
+        " · " + (SIMPLE.btdiv.value === "1" ? "含分红" : "不含分红") +
+        (SIMPLE.btfx.value === "1" ? " · 折人民币" : "") +
+        (key === "mix" ? " · 再平衡：" + ({ "1": "每月", "3": "每季", "new": "仅新增" }[(SIMPLE.rebalance && SIMPLE.rebalance.value) || "1"]) : "") +
+        (meta.updated ? " · 更新 " + meta.updated : "");
       var age = meta.updated ? (Date.now() - Date.parse(meta.updated + "T00:00:00")) / 86400000 : Infinity;
-      if (age > 100) metaText += "。警告：数据超过 100 天未更新";
-      if (meta.closes.length < 120) metaText += "。警告：历史少于 10 年，长期窗口覆盖有限";
+      if (age > 100) metaText += " · 警告：数据超过 100 天未更新";
+      if (meta.closes.length < 120) metaText += " · 警告：历史少于 10 年";
       for (var qi = 1; qi < meta.closes.length; qi++) {
         var ratio = meta.closes[qi] / meta.closes[qi - 1];
-        if (!(ratio > 0) || ratio > 2 || ratio < 0.5) { metaText += "。警告：检测到单月变化超过 ±50%，请核对数据"; break; }
+        if (!(ratio > 0) || ratio > 2 || ratio < 0.5) { metaText += " · 警告：单月变化超 ±50%，请核对数据"; break; }
       }
     }
     document.getElementById("btmeta").textContent = metaText;
-    drawCmp(d, key, bt);
-    drawAlloc(d, bt);
     document.getElementById("btchart").classList.toggle("hidden", !bt || !!bt.err);
     if (!bt || bt.err) {
       grid.innerHTML = "";
       document.getElementById("btgrid2").innerHTML = "";
       document.getElementById("herohist").textContent = "";
       document.getElementById("goalhist").textContent = "";
+      if (stickyHist) stickyHist.textContent = "";
+      if (errEl) { errEl.textContent = bt ? bt.err : "回测数据未加载"; errEl.classList.remove("hidden"); }
       note.textContent = bt ? bt.err : "回测数据未加载";
       since.textContent = "";
+      if (btCmpDetails && btCmpDetails.open) drawCmp(d, key, bt); else btCmpDirty = true;
+      drawAlloc(d, bt);
       return;
     }
+    if (errEl) { errEl.textContent = ""; errEl.classList.add("hidden"); }
     var prof = IDX[key], data = bt.data;
     var last = d.pts[d.pts.length - 1], prin = last.prin;
     // 相对本金的盈亏比,如 "＋18%" / "−6%"。传的是「期末市值 + 途中取出」:取出去花掉的钱也算回报
@@ -2239,16 +2560,12 @@
     });
     grid.innerHTML = h;
     document.getElementById("btgrid2").innerHTML = h2;
-    // 把回测结论带回页面上半部分:固定利率算出的大数字旁边,放上历史行情里的实际结局
+    // 把回测结论带回页面上半部分及吸顶条:固定利率算出的大数字旁边,放上历史行情里的实际结局
     document.getElementById("herohist").textContent = "同一方案放进" + prof.name + "的历史行情：中位数 " + yuan(bt.med) +
       "，最惨 " + yuan(bt.worst.val) + "；" + bt.beatPct.toFixed(0) + "% 的历史窗口超过了上面这个数。详见下方历史回测。";
-    var hm = goalAmt > 0 ? solveHistMon(goalAmt, key) : null;
-    document.getElementById("goalhist").textContent = hm == null ? "" : hm === 0
-      ? "换成历史行情来算（" + prof.name + "）：不用再每月定投，也有一半以上的历史窗口期末达标。"
-      : "换成历史行情来算（" + prof.name + "，选项同下方回测）：每月约需投 " + hm.toLocaleString("zh-CN") +
-        " 元，才有一半的历史窗口期末达标。和上面按预期年化算出的金额差得多，就说明预期年化填得偏乐观或偏保守。";
+    if (stickyHist) stickyHist.textContent = "· 历史中位 " + yuan(bt.med) + "（最惨 " + yuan(bt.worst.val) + "）";
     drawBtChart(d, bt, data);
-    note.textContent = "把左侧整套方案（本金、分段/递增、停投、费率）原样放进 " + data.start + " 以来的" + prof.full +
+    note.textContent = "把上方整套方案（本金、分段/递增、停投、费率）原样放进 " + data.start + " 以来的" + prof.full +
       "（数据至 " + data.end +
       (key === "mix" ? "，使用共同月份、" + rebalTxt() : key === "qqq" ? "，数据更新于 " + data.updated :
         data.live ? "，本次打开页面时从东方财富实时获取" :
@@ -2271,6 +2588,36 @@
       ? "提示：同一起点上标普500 的结局比纳指温和（波动小、回撤浅），代价是长期收益也低一截——来回切一下这两个选项，就是「波动换收益」的直观版本。"
       : "提示：「最惨窗口」基本都是 1999–2001、2007、2021 这类山顶起投——同一起点差异比想象的大得多，定投的意义正是摊平它。";
     since.textContent += " 另外要记住：这里只用了美股过去几十年的行情，它是同期全球表现最好的市场之一，未来不一定重现。";
+
+    // 次级重计算分片让出主线程：先完成主回测与图表绘制，再依次算目标历史达标率、配比表、折叠对比表
+    yieldToMain().then(function () {
+      if (runId !== btRunId) return;
+      if (goalAmt > 0) {
+        var histGoal = backtest(Object.assign({}, d, { goalTarget: goalAmt }), key, null, false, false);
+        var probText = !histGoal.err
+          ? "\n按现在填的每月定投 " + Math.round(d.mon).toLocaleString("zh-CN") + " 元，历史滚动窗口中期末账户余额达标 " +
+            pctTxt(histGoal.goalPct).replace("&lt;", "<").replace("&gt;", ">") + "（" + histGoal.count + " 个窗口；非未来概率）。"
+          : "\n" + histGoal.err;
+        if (goalBaseText) goalOut.textContent = goalBaseText + probText;
+        var hm = solveHistMon(goalAmt, key);
+        document.getElementById("goalhist").textContent = hm == null ? "" : hm === 0
+          ? "换成历史行情来算（" + prof.name + "）：不用再每月定投，也有一半以上的历史窗口期末达标。"
+          : "换成历史行情来算（" + prof.name + "，选项同下方回测）：每月约需投 " + hm.toLocaleString("zh-CN") +
+            " 元，才有一半的历史窗口期末达标。和上面按预期年化算出的金额差得多，就说明预期年化填得偏乐观或偏保守。";
+      } else {
+        document.getElementById("goalhist").textContent = "";
+      }
+      return yieldToMain();
+    }).then(function () {
+      if (runId !== btRunId) return;
+      drawAlloc(d, bt);
+      if (btCmpDetails && btCmpDetails.open) {
+        btCmpDirty = false;
+        drawCmp(d, key, bt);
+      } else {
+        btCmpDirty = true;
+      }
+    });
   }
 
   /* ---------------- 视图切换 & 主题 ---------------- */
@@ -2340,11 +2687,13 @@
 
   // 只监听 window.resize 会漏掉几种情况：首次布局尚未定稿、滚动条出现导致卡片变窄、
   // 字体加载完成后回流、卡片自身宽度变化——画布会停在过时的宽度上，多出的部分被裁掉。
-  // 直接盯住图表容器本身，宽度一变就重画。
+  // 直接盯住图表容器本身，宽度一变只重绘 SVG，不重跑整套历史回测，避免卡顿。
   function redrawIfVisible() {
     var d = compute();
     if (!document.getElementById("chartview").classList.contains("hidden")) drawChart(d);
-    drawBacktestSafe(d);  // 回测曲线的宽度也跟着卡片走
+    if (lastBtCtx && lastBtCtx.bt && !lastBtCtx.bt.err) {
+      drawBtChart(lastBtCtx.d, lastBtCtx.bt, lastBtCtx.bt.data);
+    }
   }
   if (window.ResizeObserver) {
     var lastW = 0;
@@ -2357,11 +2706,24 @@
   }
   if (document.fonts && document.fonts.ready) document.fonts.ready.then(redrawIfVisible);
 
+  // 滚过「期末账户市值」卡片后显示吸顶条，回到顶部自动隐藏
+  (function () {
+    var heroCard = document.getElementById("herocard"),
+        stickyBar = document.getElementById("stickybar");
+    if (!heroCard || !stickyBar || !window.IntersectionObserver) return;
+    new IntersectionObserver(function (entries) {
+      var show = !entries[0].isIntersecting && entries[0].boundingClientRect.top < 0;
+      stickyBar.classList.toggle("on", show);
+      stickyBar.setAttribute("aria-hidden", show ? "false" : "true");
+    }, { threshold: 0 }).observe(heroCard);
+  })();
+
   // 起始年月默认本月;再从 localStorage 恢复上次输入(存档里有就以存档为准)
   (function () {
     var now = new Date();
     SIMPLE.start.value = now.getFullYear() + "-" + String(now.getMonth() + 1).padStart(2, "0");
     loadState();
+    syncSegControls();
     // 滑块与数字框对齐(存档值可能超滑块量程)
     FIELDS.forEach(function (k) {
       var v = readVal(k);
