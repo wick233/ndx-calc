@@ -1668,16 +1668,20 @@
   }
   function applyGoal(keepUndo) {
     if (goalMon == null) return;
+    var target = Math.min(goalMon, parseFloat(el.mon.n.max));
+    if (parseFloat(el.mon.n.value) === target) return;
     if (!keepUndo) {
       undoState = getState();
       undoBtn.classList.remove("hidden");
     }
-    el.mon.n.value = Math.min(goalMon, parseFloat(el.mon.n.max));
+    el.mon.n.value = target;
     el.mon.r.value = Math.min(parseFloat(el.mon.r.max), readVal("mon"));
     render(); saveState();
   }
   goalBtn.addEventListener("click", function () { applyGoal(false); });
-  // 仅在点击「填入」按钮或按回车（且非输入法组合中）时回填「每月定投」，避免失焦意外覆盖原输入
+  // 填完目标按回车、点到别处（失焦）或切换「按今天的购买力」时，自动把算出的金额填进「每月定投」（可一键撤销）
+  SIMPLE.goal.addEventListener("change", function () { applyGoal(false); });
+  SIMPLE.goalReal.addEventListener("change", function () { applyGoal(false); });
   SIMPLE.goal.addEventListener("keydown", function (e) {
     if (e.key === "Enter" && !e.isComposing) { e.preventDefault(); applyGoal(false); }
   });
